@@ -110,6 +110,10 @@ async function main() {
     check(sizes.every(([px, css]) => css <= 201 && px <= Math.ceil(200 * dpr) + 1), `spectrum canvases keep their size at ${dpr}x scaling (${JSON.stringify(sizes)})`);
     await dash.screenshot({ path: join(OUT, 'extension-dashboard.png'), fullPage: true });
 
+    await panel.click('#tp-tile');
+    await dash.waitForFunction(() => /True peak max reset/.test(document.getElementById('log-body').textContent), null, { timeout: 5000 });
+    check(true, 'reset clicked in the side panel reaches the session (shown in the dashboard log)');
+
     console.log('Exports and stop:');
     await panel.bringToFront();
     const [dl] = await Promise.all([panel.waitForEvent('download'), panel.click('#export-csv')]);

@@ -89,6 +89,35 @@ export class MetersView {
   }
 }
 
+// Clicking (or Enter/Space on) the true-peak or integrated card restarts that
+// measurement, e.g. after adjusting a gain. handlers: { isRunning, onResetPeaks,
+// onResetIntegrated }. The reading shows "--" until the analyzer reports again.
+export function bindMeterResets({ isRunning, onResetPeaks, onResetIntegrated }, doc = document) {
+  const cards = [
+    [doc.getElementById('tp-tile'), onResetPeaks, ['tp']],
+    [doc.getElementById('int-tile'), onResetIntegrated, ['int', 'lra']],
+  ];
+  for (const [card, reset, ids] of cards) {
+    if (!card || !reset) continue;
+    card.classList.add('resettable');
+    const fire = () => {
+      if (!isRunning()) return;
+      reset();
+      for (const id of ids) setText(doc.getElementById(id), '--');
+      card.classList.remove('was-reset');
+      void card.offsetWidth; // restart the confirmation flash
+      card.classList.add('was-reset');
+    };
+    card.addEventListener('click', fire);
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        fire();
+      }
+    });
+  }
+}
+
 export function statusDetail(row) {
   if (row.status === 'CLIPPING') {
     return row.detectors.includes('fullscale')

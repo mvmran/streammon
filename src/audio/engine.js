@@ -114,6 +114,15 @@ export class AudioEngine {
     }
   }
 
+  // Restart the max true peak / integrated loudness from now (meter clicks).
+  resetPeaks() {
+    if (this.node) this.node.port.postMessage({ type: 'reset-peaks' });
+  }
+
+  resetIntegrated() {
+    if (this.node) this.node.port.postMessage({ type: 'reset-integrated' });
+  }
+
   // Asks the worklet to close any open episode and report its session summary.
   finish() {
     return this.request('finish');

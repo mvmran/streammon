@@ -151,6 +151,13 @@ export class LoudnessMeter {
     if (this.onBlock) this.onBlock(this.momentary, this.shortTerm);
   }
 
+  // Restarts integrated loudness and LRA from now; the 3 s window keeps its history so
+  // short-term and momentary carry on uninterrupted.
+  resetIntegration() {
+    this.integratedHist.reset();
+    this.lraHist.reset();
+  }
+
   get integrated() {
     return this.integratedHist.gatedMean(-10).lufs;
   }

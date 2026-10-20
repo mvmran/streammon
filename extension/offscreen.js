@@ -175,6 +175,11 @@ channel.onmessage = async (e) => {
     broadcast({ type: 'snapshot', session: session(), history: s.history, log: s.log, lastFrame: s.lastFrame, lastRow: s.lastRow, alerts: s.alerts.active });
   } else if (m.type === 'stop') {
     stop();
+  } else if (m.type === 'reset' && s.running) {
+    if (m.what === 'peaks') engine.resetPeaks();
+    else engine.resetIntegrated();
+    const title = m.what === 'peaks' ? 'True peak max reset' : 'Integrated loudness reset';
+    addLog({ clock: fmtClock(new Date()), t: s.lastRow ? s.lastRow.t : 0, kind: 'info', title, detail: 'measuring again from here' });
   } else if (m.type === 'want-spectrum') {
     wantSpectrum();
   } else if (m.type === 'get-csv') {

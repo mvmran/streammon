@@ -4,7 +4,7 @@
 
 import { connectHub } from './client.js';
 import { checkPlayer, describePlayer } from './player.js';
-import { MetersView, renderAlertBanners, createHistoryChart, createPeakChart, showRecent, timeFormatter } from './src/ui/meters.js';
+import { MetersView, renderAlertBanners, createHistoryChart, createPeakChart, showRecent, timeFormatter, bindMeterResets } from './src/ui/meters.js';
 import { EventLog } from './src/ui/log.js';
 import { SpectrumView } from './src/ui/spectrum.js';
 import { loadAlertConfig, setupSettings } from './src/ui/settings.js';
@@ -200,6 +200,12 @@ async function exportFile(type, mime) {
 }
 if ($('export-csv')) $('export-csv').addEventListener('click', () => exportFile('get-csv', 'text/csv'));
 if ($('export-json')) $('export-json').addEventListener('click', () => exportFile('get-json', 'application/json'));
+
+bindMeterResets({
+  isRunning: () => !!(state.session && state.session.running),
+  onResetPeaks: () => hub.send({ type: 'reset', what: 'peaks' }),
+  onResetIntegrated: () => hub.send({ type: 'reset', what: 'integrated' }),
+});
 
 document.querySelectorAll('.seg button').forEach((b) =>
   b.addEventListener('click', () => {

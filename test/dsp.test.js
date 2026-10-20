@@ -12,6 +12,7 @@ import { csvHeader, csvRow, summaryJson } from '../src/dsp/report.js';
 import { octaveBalance, thirdOctaveLevels, THIRD_OCTAVE_CENTRES } from '../src/dsp/bands.js';
 import { syntheticSignals, programme } from './synthetic.js';
 import { analyse, sine, dbToLin, statusString } from './helpers.js';
+import { StreamAnalyzer } from '../src/dsp/analyzer.js';
 
 const near = (a, b, tol, what = '') => assert.ok(Math.abs(a - b) <= tol, `${what} ${a} not within ±${tol} of ${b}`);
 
@@ -220,5 +221,40 @@ describe('spectrum bands', () => {
     const bal = octaveBalance(spec, sr);
     for (let i = 2; i < bal.length - 1; i++) near(bal[i], 0, 0.6, `octave ${i}`);
     assert.equal(thirdOctaveLevels(spec, sr).length, THIRD_OCTAVE_CENTRES.length);
+  });
+});
+
+describe('meter resets', () => {
+  const sr = 48000;
+  // 5 s at -10 dBFS, then 10 s at -30 dBFS (1 kHz stereo sine). The optional reset
+  // comes 0.5 s into the quiet part, mid-frame, as a real click would.
+  const x = new Float32Array(sr * 15);
+  x.set(sine(sr, 5, 1000, dbToLin(-10)));
+  x.set(sine(sr, 10, 1000, dbToLin(-30)), sr * 5);
+  const resetSample = sr * 5.5 + 77;
+
+  function run(withReset) {
+    let last = null;
+    const a = new StreamAnalyzer(sr, { onFrame: (f) => (last = f) });
+    for (let j = 0; j < x.length; j += 128) {
+      if (withReset && j <= resetSample && resetSample < j + 128) {
+        a.resetPeaks();
+        a.resetIntegrated();
+      }
+      a.process(x.subarray(j, j + 128), x.subarray(j, j + 128));
+    }
+    return { frame: last, integrated: a.loudness.integrated };
+  }
+
+  test('without a reset the loud passage dominates', () => {
+    const r = run(false);
+    near(r.frame.maxTruePeakDb, -10, 0.2, 'true peak');
+    assert.ok(r.integrated > -15, `integrated ${r.integrated}`);
+  });
+
+  test('after a reset, true peak max and integrated only cover what came after', () => {
+    const r = run(true);
+    near(r.frame.maxTruePeakDb, -30, 0.2, 'true peak');
+    near(r.integrated, -30, 0.2, 'integrated'); // -30 dBFS stereo 1 kHz sine reads -30 LUFS
   });
 });

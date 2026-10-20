@@ -8,9 +8,9 @@ export const HELP = {
   'short-term':
     'How loud it sounds over the last 3 seconds, in LUFS (loudness, not peak level). Aim for −16 to −12. Above −10 for long is too loud for YouTube. Momentary is the last 0.4 s.',
   integrated:
-    'Average loudness of the whole session so far, measured the way YouTube does (silent gaps are ignored). YouTube’s reference is about −14 LUFS; louder streams get turned down by YouTube. LRA (loudness range) is how much the loudness varies: under about 2 LU means the sound is heavily squashed.',
+    'Average loudness of the whole session so far, measured the way YouTube does (silent gaps are ignored). YouTube’s reference is about −14 LUFS; louder streams get turned down by YouTube. LRA (loudness range) is how much the loudness varies: under about 2 LU means the sound is heavily squashed. Click the card to restart both from now, e.g. after changing the mix.',
   'true-peak':
-    'The highest peak since Start, including peaks that appear between samples when the audio is converted. Keep it below −1 dBTP so YouTube’s encoder has headroom. "Now" is the last tenth of a second.',
+    'The highest peak since Start (or since you last clicked this card), including peaks that appear between samples when the audio is converted. Keep it below −1 dBTP so YouTube’s encoder has headroom. "Now" is the last tenth of a second. Click the card to reset it, e.g. after changing a gain.',
   crest:
     'How far the peaks stand above the average level, over the last 3 seconds. Natural speech and music: about 12–20 dB. Heavily limited audio: about 10–11 dB. Clipped audio: often under 9 dB.',
   stereo:

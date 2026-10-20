@@ -100,6 +100,12 @@ async function main() {
     check(await page.isVisible('.alert'), 'alert banner shown');
     const ceil = num(await page.textContent('#d-ceil'));
     check(ceil < -2.5 && ceil > -4.5, `ceiling about −3.4 to −3.9 dBFS (${ceil})`);
+    await page.click('#tp-tile');
+    await page.click('#int-tile');
+    const logAfterReset = await page.textContent('#log-body');
+    check(/True peak max reset/.test(logAfterReset) && /Integrated loudness reset/.test(logAfterReset), 'clicking true peak / integrated cards resets them (logged)');
+    await page.waitForFunction(() => document.getElementById('tp').textContent !== '--' && document.getElementById('int').textContent !== '--', null, { timeout: 5000 });
+    check(true, `readings resume after reset (true peak ${await page.textContent('#tp')}, integrated ${await page.textContent('#int')})`);
     const { dpr, sizes } = await page.evaluate(() => ({
       dpr: devicePixelRatio,
       sizes: ['bands', 'sgram'].map((id) => {

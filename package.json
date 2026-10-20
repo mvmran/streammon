@@ -1,6 +1,6 @@
 {
   "name": "streammon",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "Browser-based live audio monitor for church live streams: loudness, true peak and sub-full-scale clipping detection",
   "license": "GPL-3.0-or-later",

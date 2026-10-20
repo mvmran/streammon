@@ -15,6 +15,8 @@ class StreamAnalyzerProcessor extends AudioWorkletProcessor {
     });
     this.port.onmessage = (e) => {
       if (e.data.type === 'reset') this.analyzer.reset();
+      else if (e.data.type === 'reset-peaks') this.analyzer.resetPeaks();
+      else if (e.data.type === 'reset-integrated') this.analyzer.resetIntegrated();
       else if (e.data.type === 'finish') {
         this.analyzer.finish();
         this.port.postMessage({ type: 'summary', summary: this.analyzer.summary() });

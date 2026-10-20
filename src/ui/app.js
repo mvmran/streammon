@@ -10,7 +10,7 @@ import { EventLog } from './log.js';
 import { SessionRecorder } from './session.js';
 import { setupSettings } from './settings.js';
 import { setupHelp } from './help.js';
-import { MetersView, renderAlertBanners, createHistoryChart, createPeakChart, showRecent, timeFormatter } from './meters.js';
+import { MetersView, renderAlertBanners, createHistoryChart, createPeakChart, showRecent, timeFormatter, bindMeterResets } from './meters.js';
 import { fmtDb, fmtDuration, fmtClock, fmtStamp, fileStamp, download } from './format.js';
 
 const $ = (id) => document.getElementById(id);
@@ -506,6 +506,22 @@ if (!window.isSecureContext || !navigator.mediaDevices) {
   navigator.mediaDevices.addEventListener('devicechange', () => refreshDevices());
   refreshDevices();
 }
+function logReset(title) {
+  const t = state.lastRow ? state.lastRow.t : 0;
+  log.add({ clock: state.mode === 'file' ? 'file' : fmtClock(new Date()), t, kind: 'info', title, detail: 'measuring again from here' });
+}
+bindMeterResets({
+  isRunning: () => state.running || state.playing,
+  onResetPeaks: () => {
+    engine.resetPeaks();
+    logReset('True peak max reset');
+  },
+  onResetIntegrated: () => {
+    engine.resetIntegrated();
+    logReset('Integrated loudness reset');
+  },
+});
+
 setMode(el.source.value);
 resetReadouts();
 setupHelp();

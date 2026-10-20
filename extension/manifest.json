@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Stream Audio Monitor",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Monitors a YouTube stream's audio as viewers hear it: loudness, true peak and clipping below 0 dBFS.",
   "homepage_url": "https://github.com/mvmran/streammon",
   "minimum_chrome_version": "116",

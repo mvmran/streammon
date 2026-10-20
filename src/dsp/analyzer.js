@@ -206,6 +206,16 @@ export class StreamAnalyzer {
     if (this.onEvent) this.onEvent(e);
   }
 
+  // Meter resets from the UI, e.g. after changing a gain while tuning.
+  resetPeaks() {
+    this.maxTruePeak = 0;
+    this.f.tp = 0; // drop the part of the current 100 ms frame measured before the reset
+  }
+
+  resetIntegrated() {
+    this.loudness.resetIntegration();
+  }
+
   // Closes any open episode (end of file / stop). Safe to call more than once.
   finish() {
     if (this.episode) {
