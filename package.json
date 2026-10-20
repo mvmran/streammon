@@ -1,0 +1,24 @@
+{
+  "name": "streammon",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser-based live audio monitor for church live streams: loudness, true peak and sub-full-scale clipping detection",
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mvmran/streammon.git"
+  },
+  "type": "module",
+  "scripts": {
+    "test": "node --test --test-reporter=spec test/*.test.js",
+    "start": "python3 -m http.server 8765 --bind 127.0.0.1",
+    "calibrate": "node tools/calibrate.js",
+    "test:e2e": "node test/e2e.mjs",
+    "build:extension": "node tools/build-extension.mjs",
+    "test:extension": "node tools/build-extension.mjs && node test/e2e-extension.mjs",
+    "store:assets": "node tools/build-extension.mjs && node tools/store-assets.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.62.1"
+  }
+}

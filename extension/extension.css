@@ -1,0 +1,30 @@
+/* Additions to css/app.css for the extension's side panel and dashboard. */
+
+.ext-title { display: flex; flex-direction: column; min-width: 0; }
+.topbar .ext-title { flex-direction: row; align-items: baseline; gap: 8px; }
+#tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 60ch; }
+
+.player-check { list-style: none; margin: 10px 0 0; padding: 8px 12px; background: var(--surface); border-radius: var(--radius); font-size: 0.85rem; display: flex; flex-direction: column; gap: 4px; }
+.player-check li { display: flex; gap: 8px; align-items: baseline; }
+.player-check li::before { content: '\2713'; color: var(--good); font-weight: 700; width: 1em; }
+.player-check li.warning::before { content: '\26A0'; color: var(--warning); }
+.player-check li.critical::before { content: '\2716'; color: var(--critical); }
+.player-check li.info::before { content: 'i'; color: var(--muted); font-style: italic; }
+
+/* Side panel: narrow column, everything stacked. */
+.panel-page { padding: 10px 12px 16px; font-size: 14px; }
+.panel-page > * + * { margin-top: 10px; }
+.panel-page #notices, .panel-page .alerts { padding: 0; }
+.ext-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.ext-head h1 { font-size: 1rem; }
+.readouts.compact { grid-template-columns: 1fr 1fr; gap: 8px; }
+.readouts.compact .status-tile { grid-column: span 2; }
+.readouts.compact .tile { padding: 8px 10px; }
+.readouts.compact .tile .big { font-size: clamp(1.4rem, 30cqi, 2.8rem); }
+.readouts.compact .status-tile .big { font-size: clamp(1.6rem, 14cqi, 2.8rem); }
+.panel-page .panel { padding: 10px; }
+.ext-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.ext-actions .btn { padding: 6px 10px; }
+.panel-page .log-scroll { max-height: 260px; }
+.panel-page .log th:nth-child(4), .panel-page .log td:nth-child(4) { display: none; }
+.delay-note { line-height: 1.35; }

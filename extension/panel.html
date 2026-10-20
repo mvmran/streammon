@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stream Audio Monitor</title>
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="stylesheet" href="extension.css" />
+  </head>
+  <body class="panel-page">
+    <header class="ext-head">
+      <div class="ext-title">
+        <h1>Stream Audio Monitor</h1>
+        <div id="tab-title" class="muted small">Not monitoring</div>
+      </div>
+      <span id="elapsed" class="muted small tabular"></span>
+    </header>
+
+    <div id="idle" class="notice">Open a YouTube video or live stream, then click the <strong>Stream Audio Monitor</strong> toolbar button to start.</div>
+    <div id="ended" class="notice warning" hidden></div>
+    <ul id="player" class="player-check" hidden></ul>
+    <div id="alerts" class="alerts"></div>
+
+    <section class="readouts compact" aria-label="Meters">
+      <div id="status-tile" class="tile status-tile" data-status="IDLE" data-help="status">
+        <div class="label">Clipping status</div>
+        <div class="big"><span id="status-icon" aria-hidden="true"></span><span id="status">IDLE</span></div>
+        <div id="status-detail" class="sub"></div>
+      </div>
+      <div class="tile" data-help="short-term">
+        <div class="label">Short-term <span class="unit-label">LUFS</span></div>
+        <div class="big tabular"><span id="st">--</span></div>
+        <div class="sub"><span id="st-chip" class="chip" hidden></span></div>
+      </div>
+      <div class="tile" data-help="integrated">
+        <div class="label">Integrated <span class="unit-label">LUFS</span></div>
+        <div class="big tabular"><span id="int">--</span></div>
+        <div class="sub">LRA <span id="lra" class="tabular">--</span> LU</div>
+      </div>
+      <div class="tile" id="tp-tile" data-help="true-peak">
+        <div class="label">True peak max <span class="unit-label">dBTP</span></div>
+        <div class="big tabular"><span id="tp">--</span></div>
+        <div class="sub"><span id="tp-chip" class="chip" hidden></span></div>
+      </div>
+      <div class="tile" data-help="crest">
+        <div class="label">Crest (3 s) <span class="unit-label">dB</span></div>
+        <div class="big tabular"><span id="crest">--</span></div>
+        <div class="sub"><span id="mono" class="badge" data-help="stereo">--</span></div>
+      </div>
+    </section>
+
+    <div class="panel">
+      <div class="panel-head"><h2 data-help="history">Last 5 minutes <span class="muted small">short-term LUFS</span></h2></div>
+      <div class="chart-wrap"><canvas id="history" height="150" aria-label="Short-term loudness, last 5 minutes"></canvas></div>
+    </div>
+
+    <div class="ext-actions">
+      <button id="stop" class="btn" type="button" disabled>Stop</button>
+      <button id="open-dashboard" class="btn primary" type="button">Open dashboard</button>
+      <button id="export-csv" class="btn" type="button" disabled>CSV</button>
+      <button id="export-json" class="btn" type="button" disabled>JSON</button>
+      <button id="open-settings" class="btn ghost" type="button">Alert settings</button>
+    </div>
+
+    <div class="panel log-panel">
+      <div class="panel-head"><h2 data-help="log">Event log</h2></div>
+      <div class="log-scroll">
+        <table class="log">
+          <thead><tr><th>Clock</th><th>Elapsed</th><th>Event</th><th>Ceiling</th><th>Detail</th></tr></thead>
+          <tbody id="log-body"></tbody>
+        </table>
+        <p id="log-empty" class="muted small empty">No events yet.</p>
+      </div>
+    </div>
+
+    <p class="muted small delay-note">This is the audio viewers hear, after YouTube. It runs 5–30 s behind the desk, so alerts arrive late; use the ATEM input for instant warnings.</p>
+
+    <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+    <script type="module" src="view.js"></script>
+  </body>
+</html>

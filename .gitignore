@@ -1,0 +1,5 @@
+node_modules/
+dist/
+test/e2e-output/
+# Service recordings used by the tests: kept local (may contain copyrighted music).
+test-audio/

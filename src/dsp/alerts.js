@@ -1,0 +1,88 @@
+// Alert rules evaluated on the analyzer's 1-second rows. Pure logic so the thresholds
+// can be tested without a browser.
+
+export const DEFAULT_ALERTS = {
+  clipping: { enabled: true, seconds: 1 },
+  truePeak: { enabled: true, dbtp: -1 },
+  shortTermHigh: { enabled: true, lufs: -10, seconds: 10 },
+  integratedOff: { enabled: true, target: -14, tolerance: 4, minSeconds: 60 },
+  clearAfterSec: 5, // an alert stays up until its condition has been absent this long
+  sound: false, // off by default: this runs during services
+};
+
+export const ALERT_LABELS = {
+  clipping: 'Clipping',
+  truePeak: 'True peak',
+  shortTermHigh: 'Too loud',
+  integratedOff: 'Integrated loudness off target',
+};
+
+export function mergeAlertConfig(base, override = {}) {
+  const out = structuredClone(base);
+  for (const [k, v] of Object.entries(override || {})) {
+    if (v && typeof v === 'object' && out[k] && typeof out[k] === 'object') Object.assign(out[k], v);
+    else if (k in out) out[k] = v;
+  }
+  return out;
+}
+
+export class AlertMonitor {
+  constructor(config = DEFAULT_ALERTS) {
+    this.config = mergeAlertConfig(DEFAULT_ALERTS, config);
+    this.reset();
+  }
+
+  reset() {
+    this.run = { clipping: 0, shortTermHigh: 0 };
+    this.active = {}; // id -> { since, lastSeen, message }
+  }
+
+  // Checks which alert conditions hold for this row. Returns { id: message }.
+  conditions(row) {
+    const c = this.config;
+    const out = {};
+    this.run.clipping = row.status === 'CLIPPING' ? this.run.clipping + 1 : 0;
+    if (c.clipping.enabled && this.run.clipping >= c.clipping.seconds) {
+      const det = row.detectors && row.detectors.length ? ` (${row.detectors.join(' + ')})` : '';
+      out.clipping = `Clipping for ${this.run.clipping} s at ${fmt(row.ceilingDb)} dBFS${det}`;
+    }
+    if (c.truePeak.enabled && row.truePeakDb > c.truePeak.dbtp) {
+      out.truePeak = `True peak ${fmt(row.truePeakDb)} dBTP (limit ${c.truePeak.dbtp})`;
+    }
+    this.run.shortTermHigh = row.shortTerm > c.shortTermHigh.lufs ? this.run.shortTermHigh + 1 : 0;
+    if (c.shortTermHigh.enabled && this.run.shortTermHigh >= c.shortTermHigh.seconds) {
+      out.shortTermHigh = `Short-term ${fmt(row.shortTerm)} LUFS above ${c.shortTermHigh.lufs} for ${this.run.shortTermHigh} s`;
+    }
+    const io = c.integratedOff;
+    if (io.enabled && row.t >= io.minSeconds && Number.isFinite(row.integrated) && Math.abs(row.integrated - io.target) > io.tolerance) {
+      out.integratedOff = `Integrated ${fmt(row.integrated)} LUFS (target ${io.target} ±${io.tolerance})`;
+    }
+    return out;
+  }
+
+  // Updates state from a row. Returns { raised: [{id, message}], cleared: [id], active }.
+  update(row) {
+    const now = this.conditions(row);
+    const raised = [];
+    const cleared = [];
+    for (const [id, message] of Object.entries(now)) {
+      if (!this.active[id]) {
+        this.active[id] = { since: row.t, lastSeen: row.t, message };
+        raised.push({ id, message, t: row.t });
+      } else {
+        Object.assign(this.active[id], { lastSeen: row.t, message });
+      }
+    }
+    for (const [id, a] of Object.entries(this.active)) {
+      if (!(id in now) && row.t - a.lastSeen >= this.config.clearAfterSec) {
+        delete this.active[id];
+        cleared.push(id);
+      }
+    }
+    return { raised, cleared, active: this.active };
+  }
+}
+
+function fmt(x) {
+  return Number.isFinite(x) ? x.toFixed(1) : '-inf';
+}

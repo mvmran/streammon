@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stream Audio Monitor dashboard</title>
+    <link rel="stylesheet" href="css/app.css" />
+    <link rel="stylesheet" href="extension.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>Stream Audio Monitor</h1>
+      <div class="controls">
+        <div class="ext-title"><span class="muted small">Monitoring</span> <span id="tab-title">Not monitoring</span></div>
+        <button id="stop" class="btn" type="button" disabled>Stop</button>
+      </div>
+      <div class="clock" aria-live="off">
+        <span id="wallclock">--:--:--</span>
+        <span id="elapsed" class="muted"></span>
+      </div>
+      <button id="settings-btn" class="btn ghost" type="button">Alerts &amp; settings</button>
+    </header>
+
+    <div id="notices">
+      <div id="idle" class="notice">Open a YouTube video or live stream, then click the <strong>Stream Audio Monitor</strong> toolbar button to start.</div>
+      <div id="ended" class="notice warning" hidden></div>
+      <ul id="player" class="player-check" hidden></ul>
+    </div>
+    <div id="alerts" class="alerts" aria-live="assertive"></div>
+
+    <main>
+      <section class="readouts" aria-label="Meters">
+        <div id="status-tile" class="tile status-tile" data-status="IDLE" data-help="status">
+          <div class="label">Clipping status</div>
+          <div class="big"><span id="status-icon" aria-hidden="true"></span><span id="status">IDLE</span></div>
+          <div id="status-detail" class="sub"></div>
+        </div>
+        <div class="tile" data-help="short-term">
+          <div class="label">Short-term loudness <span class="unit-label">LUFS</span></div>
+          <div class="big tabular"><span id="st">--</span></div>
+          <div class="sub">Momentary <span id="mom" class="tabular">--</span> <span id="st-chip" class="chip" hidden></span></div>
+        </div>
+        <div class="tile" data-help="integrated">
+          <div class="label">Integrated <span class="unit-label">LUFS</span></div>
+          <div class="big tabular"><span id="int">--</span></div>
+          <div class="sub">Range (LRA) <span id="lra" class="tabular">--</span> LU</div>
+        </div>
+        <div class="tile" id="tp-tile" data-help="true-peak">
+          <div class="label">True peak (max) <span class="unit-label">dBTP</span></div>
+          <div class="big tabular"><span id="tp">--</span></div>
+          <div class="sub">Now <span id="tp-now" class="tabular">--</span> <span id="tp-chip" class="chip" hidden></span></div>
+        </div>
+        <div class="tile" data-help="crest">
+          <div class="label">Crest factor (3 s) <span class="unit-label">dB</span></div>
+          <div class="big tabular"><span id="crest">--</span></div>
+          <div class="sub">Peak <span id="peak" class="tabular">--</span> dBFS</div>
+        </div>
+        <div class="tile" data-help="stereo">
+          <div class="label">Stereo</div>
+          <div class="big"><span id="mono" class="badge">--</span></div>
+          <div class="sub">Corr <span id="corr" class="tabular">--</span> · S/M <span id="sidemid" class="tabular">--</span></div>
+        </div>
+      </section>
+
+      <section class="charts">
+        <div class="panel chart-panel wide">
+          <div class="panel-head">
+            <h2 data-help="history">Loudness history <span class="muted small">short-term LUFS</span></h2>
+            <div class="seg" role="group" aria-label="History length">
+              <button type="button" data-range="300" class="on">5 min</button>
+              <button type="button" data-range="900">15 min</button>
+              <button type="button" data-range="3600">60 min</button>
+            </div>
+          </div>
+          <div class="chart-wrap"><canvas id="history" height="240" aria-label="Short-term loudness history"></canvas></div>
+        </div>
+        <div class="panel chart-panel wide">
+          <div class="panel-head">
+            <h2 data-help="peaks">Peak per second <span class="muted small">a flat line of peaks = clipping or limiting</span></h2>
+          </div>
+          <div class="chart-wrap"><canvas id="peaks" height="200" aria-label="Peak level per second"></canvas></div>
+        </div>
+      </section>
+
+      <section class="spectrum">
+        <div class="panel">
+          <div class="panel-head"><h2 data-help="spectrum">Spectrum <span class="muted small">1/3 octave</span></h2></div>
+          <div class="chart-wrap"><canvas id="bands" height="200" aria-label="One-third octave spectrum"></canvas></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2 data-help="spectrogram">Spectrogram</h2></div>
+          <div class="chart-wrap"><canvas id="sgram" height="200" aria-label="Scrolling spectrogram"></canvas></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2 data-help="balance">Octave balance <span class="muted small">dB vs 500 Hz, ~5 s average</span></h2></div>
+          <div id="balance" class="balance"></div>
+        </div>
+      </section>
+
+      <section class="bottom">
+        <div class="panel log-panel">
+          <div class="panel-head">
+            <h2 data-help="log">Event log</h2>
+            <div class="log-actions">
+              <button id="export-csv" class="btn" type="button" disabled>Export CSV</button>
+              <button id="export-json" class="btn" type="button" disabled>Export JSON summary</button>
+            </div>
+          </div>
+          <div class="log-scroll">
+            <table class="log">
+              <thead><tr><th>Clock</th><th>Elapsed</th><th>Event</th><th>Ceiling</th><th>Detail</th></tr></thead>
+              <tbody id="log-body"></tbody>
+            </table>
+            <p id="log-empty" class="muted small empty">No events yet.</p>
+          </div>
+        </div>
+        <div class="panel detectors">
+          <div class="panel-head"><h2 data-help="detectors">Detectors</h2></div>
+          <dl>
+            <dt>Dwell runs (3 s avg)</dt><dd><span id="d-dwell" class="tabular">--</span> /s <span class="muted small">clean &lt;1 · limited ~3–4 · clipped 10+</span></dd>
+            <dt>Pile-up ratio</dt><dd><span id="d-pile" class="tabular">--</span> <span class="muted small">wall ≥ 0.45</span></dd>
+            <dt>Peaks pinned (10 s)</dt><dd><span id="d-pin" class="tabular">--</span> <span class="muted small">limiter ≥ 55%</span></dd>
+            <dt>Ceiling</dt><dd><span id="d-ceil" class="tabular">--</span> dBFS</dd>
+            <dt>Full-scale runs</dt><dd><span id="d-fs" class="tabular">--</span> <span class="muted small">this second</span></dd>
+          </dl>
+          <p class="muted small">This is the audio viewers hear, after YouTube: 5–30 s behind the desk.</p>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="settings" class="settings">
+      <form method="dialog" id="settings-form">
+        <h2>Alerts &amp; settings</h2>
+        <fieldset>
+          <legend><label><input type="checkbox" name="clipping.enabled" /> Clipping</label></legend>
+          <label>Status CLIPPING for at least <input type="number" name="clipping.seconds" min="1" max="60" step="1" /> s</label>
+        </fieldset>
+        <fieldset>
+          <legend><label><input type="checkbox" name="truePeak.enabled" /> True peak</label></legend>
+          <label>Above <input type="number" name="truePeak.dbtp" min="-12" max="3" step="0.1" /> dBTP</label>
+        </fieldset>
+        <fieldset>
+          <legend><label><input type="checkbox" name="shortTermHigh.enabled" /> Too loud</label></legend>
+          <label>Short-term above <input type="number" name="shortTermHigh.lufs" min="-30" max="0" step="0.5" /> LUFS</label>
+          <label>for <input type="number" name="shortTermHigh.seconds" min="1" max="120" step="1" /> s</label>
+        </fieldset>
+        <fieldset>
+          <legend><label><input type="checkbox" name="integratedOff.enabled" /> Integrated off target</label></legend>
+          <label>Target <input type="number" name="integratedOff.target" min="-30" max="-5" step="0.5" /> LUFS</label>
+          <label>± <input type="number" name="integratedOff.tolerance" min="0.5" max="10" step="0.5" /> LU</label>
+          <label>after <input type="number" name="integratedOff.minSeconds" min="10" max="3600" step="10" /> s</label>
+        </fieldset>
+        <fieldset>
+          <legend>Sound</legend>
+          <label><input type="checkbox" name="sound" /> Beep when an alert is raised <span class="muted small">(off by default: this runs during services)</span></label>
+        </fieldset>
+        <p class="muted small">Alerts also appear as Chrome notifications and on the toolbar badge.</p>
+        <div class="dialog-actions">
+          <button type="button" id="settings-reset" class="btn ghost">Defaults</button>
+          <button value="cancel" class="btn">Cancel</button>
+          <button value="save" class="btn primary">Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+    <script type="module" src="view.js"></script>
+  </body>
+</html>

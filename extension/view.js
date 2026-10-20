@@ -1,0 +1,214 @@
+// Controller for the extension's views: the side panel (compact) and the dashboard
+// (full). Both pages use the same element ids; anything a page doesn't include is
+// skipped. The session itself lives in the offscreen document.
+
+import { connectHub } from './client.js';
+import { checkPlayer, describePlayer } from './player.js';
+import { MetersView, renderAlertBanners, createHistoryChart, createPeakChart, showRecent, timeFormatter } from './src/ui/meters.js';
+import { EventLog } from './src/ui/log.js';
+import { SpectrumView } from './src/ui/spectrum.js';
+import { loadAlertConfig, setupSettings } from './src/ui/settings.js';
+import { setupHelp } from './src/ui/help.js';
+import { fmtDuration, fmtClock, download, escapeHtml } from './src/ui/format.js';
+
+const $ = (id) => document.getElementById(id);
+const HISTORY_MAX = 3600;
+const UI_FPS = 10;
+const compact = document.body.classList.contains('panel-page');
+
+const state = {
+  session: null,
+  history: [],
+  active: {},
+  dismissed: new Set(),
+  cfg: loadAlertConfig(),
+  range: 300,
+  frame: null,
+  spectrum: null,
+};
+
+if ($('settings')) {
+  state.cfg = setupSettings($('settings'), $('settings-btn'), (cfg) => {
+    state.cfg = cfg;
+    redraw();
+  });
+  if (location.hash === '#settings') $('settings-btn').click();
+}
+window.addEventListener('storage', () => (state.cfg = loadAlertConfig()));
+
+const meters = new MetersView(() => state.cfg);
+const xFormat = timeFormatter(() => ({ mode: 'live', startWall: state.session ? state.session.startWall : 0 }));
+const charts = [];
+if ($('history')) charts.push(createHistoryChart($('history'), xFormat, { compact }));
+if ($('peaks')) charts.push(createPeakChart($('peaks'), xFormat, () => state.cfg));
+const spectrum = $('bands') ? new SpectrumView({ bands: $('bands'), sgram: $('sgram'), balance: $('balance') }) : null;
+const log = new EventLog($('log-body'), $('log-empty'));
+
+function redraw() {
+  showRecent(charts, state.history, state.range);
+}
+
+function renderAlerts() {
+  renderAlertBanners($('alerts'), state.active, {
+    dismissed: state.dismissed,
+    startWall: state.session ? state.session.startWall : 0,
+    onDismiss: (id) => {
+      state.dismissed.add(id);
+      renderAlerts();
+    },
+  });
+}
+
+function resetSession() {
+  state.history = [];
+  state.active = {};
+  state.dismissed.clear();
+  state.frame = null;
+  log.clear();
+  meters.reset('Waiting for audio…');
+  if (spectrum) spectrum.clear();
+  renderAlerts();
+  redraw();
+}
+
+function applySession(sess) {
+  state.session = sess;
+  const started = !!(sess && sess.startWall);
+  $('idle').hidden = started || !!(sess && sess.endedReason);
+  const ended = $('ended');
+  ended.hidden = !(sess && !sess.running && sess.endedReason);
+  if (!ended.hidden) {
+    ended.textContent = sess.endedReason === 'Stopped'
+      ? 'Monitoring stopped. Click the toolbar button on a YouTube tab to start again.'
+      : `Monitoring stopped: ${sess.endedReason}. Click the toolbar button on a YouTube tab to start again.`;
+  }
+  $('tab-title').textContent = sess && sess.tab ? sess.tab.title : 'Not monitoring';
+  $('stop').disabled = !(sess && sess.running);
+  for (const id of ['export-csv', 'export-json']) if ($(id)) $(id).disabled = !started;
+  if (!(sess && sess.running)) {
+    state.frame = null;
+    meters.renderStatus('IDLE');
+  }
+  pollPlayer();
+}
+
+const hub = connectHub({
+  snapshot(m) {
+    resetSession();
+    state.history = m.history.slice();
+    for (const e of m.log) log.add(e);
+    state.active = m.alerts || {};
+    if (m.lastRow) meters.renderRow(m.lastRow);
+    if (m.lastFrame && m.session.running) meters.renderFrame(m.lastFrame);
+    applySession(m.session);
+    renderAlerts();
+    redraw();
+  },
+  session(m) {
+    const prev = state.session;
+    if (m.session.running && (!prev || prev.startWall !== m.session.startWall)) resetSession();
+    applySession(m.session);
+  },
+  frame(m) {
+    state.frame = m.frame;
+  },
+  row(m) {
+    state.history.push(m.row);
+    if (state.history.length > HISTORY_MAX) state.history.shift();
+    meters.renderRow(m.row);
+    redraw();
+  },
+  log(m) {
+    log.add(m.entry);
+  },
+  alerts(m) {
+    for (const id of state.dismissed) if (!(id in m.active)) state.dismissed.delete(id);
+    state.active = m.active;
+    renderAlerts();
+  },
+  spectrum(m) {
+    state.spectrum = m;
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Rendering loop
+
+let lastTick = performance.now();
+function tick(now) {
+  requestAnimationFrame(tick);
+  if (now - lastTick < 1000 / UI_FPS - 2) return;
+  const dt = (now - lastTick) / 1000;
+  lastTick = now;
+  if (state.frame) {
+    meters.renderFrame(state.frame);
+    $('elapsed').textContent = `elapsed ${fmtDuration(state.frame.t)}`;
+    state.frame = null;
+  }
+  if (spectrum && state.spectrum) {
+    spectrum.updateData(state.spectrum.data, state.spectrum.sampleRate, dt);
+    state.spectrum = null;
+  }
+  if ($('wallclock')) $('wallclock').textContent = fmtClock(new Date());
+}
+requestAnimationFrame(tick);
+
+// The offscreen document only sends spectrum data while someone asks for it.
+if (spectrum) {
+  setInterval(() => {
+    if (!document.hidden && state.session && state.session.running) hub.send({ type: 'want-spectrum' });
+  }, 1000);
+}
+
+// ---------------------------------------------------------------------------
+// YouTube player checks
+
+let polling = null;
+async function pollPlayer() {
+  const sess = state.session;
+  const list = $('player');
+  if (!sess || !sess.running || !(sess.tab && sess.tab.id >= 0)) {
+    list.hidden = true;
+    clearTimeout(polling);
+    polling = null;
+    return;
+  }
+  if (polling) return;
+  const run = async () => {
+    const items = describePlayer(await checkPlayer(sess.tab.id));
+    list.hidden = !items.length;
+    list.innerHTML = items.map((i) => `<li class="${i.level}">${escapeHtml(i.text)}</li>`).join('');
+    polling = state.session && state.session.running ? setTimeout(run, 3000) : null;
+  };
+  polling = setTimeout(run, 0);
+}
+
+// ---------------------------------------------------------------------------
+// Buttons
+
+$('stop').addEventListener('click', () => hub.send({ type: 'stop' }));
+if ($('open-dashboard')) $('open-dashboard').addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') }));
+if ($('open-settings')) $('open-settings').addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html#settings') }));
+
+async function exportFile(type, mime) {
+  try {
+    const r = await hub.request(type);
+    download(r.name, r.text, mime);
+  } catch (e) {
+    alert(e.message);
+  }
+}
+if ($('export-csv')) $('export-csv').addEventListener('click', () => exportFile('get-csv', 'text/csv'));
+if ($('export-json')) $('export-json').addEventListener('click', () => exportFile('get-json', 'application/json'));
+
+document.querySelectorAll('.seg button').forEach((b) =>
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.seg button').forEach((x) => x.classList.toggle('on', x === b));
+    state.range = Number(b.dataset.range);
+    redraw();
+  }),
+);
+
+meters.reset('Waiting for audio…');
+
+setupHelp();
