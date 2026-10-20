@@ -14,6 +14,11 @@ It comes in two forms that share the same analysis code:
 Everything runs locally in the browser; no audio or data leaves the computer
 ([privacy policy](PRIVACY.md)).
 
+- **Web app:** <https://mvmran.github.io/streammon/>. Open it in Chrome or Edge; nothing to install.
+- **Chrome extension:** download `streammon-extension-<version>.zip` from the
+  [latest release](https://github.com/mvmran/streammon/releases/latest) and install it as
+  described under [Chrome extension](#chrome-extension-what-viewers-hear-on-youtube).
+
 ## Running it
 
 The browser only allows audio capture on `localhost` or `https://`, so the page has to be
@@ -78,12 +83,14 @@ YouTube has encoded the stream. It uses the same analysis as the web app. The st
 5–30 s behind the desk, so alerts arrive late; the ATEM input (above) stays the instant
 warning.
 
-**Install (unpacked, for now):**
+**Install (unpacked, until the Chrome Web Store listing is live):**
 
-1. `npm run build:extension` builds the folder `dist/streammon-extension/` and a zip of it
-   (`dist/streammon-extension-<version>.zip`) to copy to other machines.
+1. Download `streammon-extension-<version>.zip` from the
+   [latest release](https://github.com/mvmran/streammon/releases/latest), or build it with
+   `npm run build:extension` (it lands in `dist/`). Unzip it into a folder you will keep:
+   Chrome loads the extension from that folder every time.
 2. In Chrome or Edge open `chrome://extensions`, turn on **Developer mode**, click **Load
-   unpacked** and choose the `streammon-extension` folder (unzip it first on another machine).
+   unpacked** and choose the unzipped folder.
 3. Pin the **Stream Audio Monitor** button to the toolbar (puzzle-piece menu → pin).
 
 To update, replace the folder and click the reload icon on the extension's card.
