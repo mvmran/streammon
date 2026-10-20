@@ -20,6 +20,12 @@ export const CSV_COLUMNS = [
   ['peaks_pinned', (r) => num(r.pinned, 2)],
   ['ceiling_dbfs', (r) => num(r.ceilingDb)],
   ['fullscale_runs', (r) => String(r.fullScaleRuns ?? 0)],
+  ['hum_mains_hz', (r) => (r.humMainsHz ? String(r.humMainsHz) : '')],
+  ['hum_status', (r) => r.humStatus || ''],
+  ['hum_level_dbfs', (r) => num(r.humLevelDb)],
+  ['hum_frequency_hz', (r) => num(r.humFrequencyHz, 2)],
+  ['hum_prominence_db', (r) => num(r.humProminenceDb)],
+  ['hum_projected_dbfs', (r) => num(r.humProjectedDb)],
 ];
 
 function num(x, digits = 1) {

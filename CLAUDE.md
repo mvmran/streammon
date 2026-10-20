@@ -75,6 +75,39 @@ How the status is decided:
 
 A steady pure sine looks exactly like limited audio, so the synthetic "programme" in `test/synthetic.js` uses chords plus pink noise. When retuning, run `npm run calibrate` on the recordings and keep every case in `test/reference.test.js` and `test/dsp.test.js` passing.
 
+### Mains hum detector (`src/dsp/hum.js`)
+
+**Front end.** The mono mix is decimated to about 2 kHz in two IIR stages (about 8 kHz, then ÷4). Their gain is compensated analytically per harmonic.
+
+**Lock-in grid.** For each harmonic k, rotating phasors sit on a grid k·f0 + m·Δ, with Δ = 1/detectWindow (0.25 Hz) and m = −21…21. They accumulate complex sums in 0.5 s segments referenced to absolute sample time. Hann-windowed DFTs over any whole number of segments are then exact (½X(m) − ¼e^{−jθ}X(m−1) − ¼e^{jθ}X(m+1)). That gives the 4 s detect window, the 1 s display window and single 0.5 s segments (used for the quiet-passage level).
+
+**`refPhase`.** Converts a grid point's phase to the k·f0 reference using integer arithmetic.
+
+**Checks, per reference harmonic (1st or 3rd):**
+- prominence over the ±3.5 Hz controls ≥ 18 dB;
+- a peak inside the search range, within ±0.25·k Hz of k·f0;
+- persistence ≥ 5 s of the last 10 s;
+- phase residual ≤ 0.5 rad;
+- level std ≤ 2 dB, excluding windows that straddle a logged step.
+
+A status is held for 2 s.
+
+**MASKED vs NOT DETECTED.** Decided by the mean grid power in f0 ± 5 Hz, excluding the hum's own bins.
+
+**Harmonic levels.**
+- Averaged in phase with a tracked mains phase (an EMA of derotated complex values).
+- Each is judged against the same average taken over the control bins: ≥ 10 dB above it is clear, 6–10 dB tentative.
+- The signature uses only clear or tentative harmonics, and only after 20 s of averaging while present.
+
+**Calibration** (`test/hum.test.js`):
+- Real hum prominence is 29–39 dB.
+- Bass notes reach at most 12 dB.
+- A real 59.9 Hz tone at −86 dBFS in `Reference_speech_recording.wav` reaches 10–20 dB. It must stay NOT DETECTED at the 60 Hz setting, which is why the defaults are minProminenceDb 18 and alertLevelDbfs −75.
+
+**Integration.** `StreamAnalyzer` adds audibility (`belowProgrammeDb`, and `projectedDb` at speechTargetLufs from integrated loudness) and puts the hum fields in each 1 s row. The hum settings live in the alert config's `hum` section (`humOptionsFrom`).
+
+**Isolation.** `src/dsp/hum-isolate.js` is an STFT comb mask (bins under 0.4 Hz, ±0.75 Hz per harmonic) for the "Listen to isolated hum" button.
+
 ### Browser side
 
 - **`src/audio/engine.js`** builds the graph: source → input gain → worklet (muted output to the destination, which keeps it pulled) plus an AnalyserNode. The AnalyserNode is for the spectrum display only; all measurements come from raw samples.

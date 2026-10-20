@@ -14,6 +14,7 @@ self.onmessage = (e) => {
     events = [];
     analyzer = new StreamAnalyzer(msg.sampleRate, {
       clipOptions: msg.clipOptions || {},
+      humOptions: msg.humOptions || {},
       onSecond: (row) => rows.push(row),
       onEvent: (event) => events.push(event),
     });

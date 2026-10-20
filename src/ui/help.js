@@ -29,6 +29,12 @@ export const HELP = {
     'Every time clipping or limiting starts or ends, and every alert, with the clock time, the ceiling level in dBFS and which detector fired. Export it with the CSV/JSON buttons. For a file, click an entry to listen from just before it.',
   detectors:
     'The numbers behind the status, for checking or tuning. Dwell: how often the audio lingers within 1 dB of its ceiling. Pile-up: whether samples crowd against a hard wall at that ceiling (the sign of clipping). Peaks pinned: share of peaks held at the ceiling (the sign of limiting). Full-scale runs: samples stuck at 0 dBFS.',
+  hum:
+    'Mains (powerline) hum: a steady tone at the mains frequency (50 or 60 Hz, set in Alerts & settings) and its multiples. PRESENT: a mains-locked tone that stands out, stays on frequency, keeps its phase and holds a steady level. NOT DETECTED: none, and one at the alert level would have shown. MASKED: the programme near that frequency is too loud to judge (music never counts as "none"). The projection shows how loud the hum becomes if quiet speech is turned up to the target.',
+  'hum-harmonics':
+    'Hum harmonics at 1×, 2×, 3×… the mains frequency, in dB relative to the fundamental, averaged in step with the mains so programme sound averages away. Solid: clearly above the noise floor; faded: tentative; outline: below the floor (not measurable here). Strong 3rd and 5th hint at a ground loop or unbalanced line; strong 2nd and 4th at a rectifier or power supply. A hint, not a verdict.',
+  'hum-history':
+    'Hum level (orange) over time on the same scale as short-term loudness (blue). Hum that rises when a particular section starts (for example speech, or one microphone) points at where it comes in. The strip underneath shows the hum status each second.',
   timeline:
     'The whole file: short-term loudness (blue) and the peak of each second (orange), with the status strip underneath. Click anywhere to listen from that point with the meters running.',
 };

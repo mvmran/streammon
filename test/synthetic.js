@@ -117,3 +117,70 @@ export function syntheticSignals(sampleRate = 48000, seconds = 20) {
     clean: lowpass(programme(sampleRate, seconds, -20, 11), sampleRate),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Hum test signals
+
+// Speech-like noise: pink noise high-passed at 150 Hz (little energy near mains
+// frequencies, like a voice), with a syllabic envelope and a pause every few seconds.
+export function speechLike(sampleRate, seconds, rmsDb = -30, seed = 3) {
+  const rand = mulberry32(seed);
+  const n = Math.round(sampleRate * seconds);
+  const x = new Float32Array(n);
+  let b0 = 0, b1 = 0, b2 = 0;
+  for (let i = 0; i < n; i++) {
+    const w = rand() * 2 - 1;
+    b0 = 0.99765 * b0 + w * 0.099046;
+    b1 = 0.963 * b1 + w * 0.2965164;
+    b2 = 0.57 * b2 + w * 1.0526913;
+    const t = i / sampleRate;
+    const syllable = 0.25 + 0.75 * Math.abs(Math.sin(2 * Math.PI * 2.7 * t));
+    const pause = t % 6 > 5 ? 0.02 : 1; // 1 s pause every 6 s
+    // Envelope before the band limit, as in a voice: no low-frequency splatter from edges.
+    x[i] = (b0 + b1 + b2 + w * 0.1848) * 0.25 * syllable * pause;
+  }
+  // 4 x 2nd-order Butterworth high-pass at 150 Hz (8th order).
+  const K = Math.tan((Math.PI * 150) / sampleRate);
+  for (const q of [0.5098, 0.6013, 0.9, 2.5629]) {
+    const nrm = 1 / (1 + K / q + K * K);
+    const c = { b0: nrm, b1: -2 * nrm, b2: nrm, a1: 2 * (K * K - 1) * nrm, a2: (1 - K / q + K * K) * nrm };
+    let s1 = 0, s2 = 0;
+    for (let i = 0; i < n; i++) {
+      const v = x[i];
+      const y = c.b0 * v + s1;
+      s1 = c.b1 * v - c.a1 * y + s2;
+      s2 = c.b2 * v - c.a2 * y;
+      x[i] = y;
+    }
+  }
+  let ss = 0;
+  for (let i = 0; i < n; i++) ss += x[i] * x[i];
+  const g = db(rmsDb) / Math.sqrt(ss / n);
+  for (let i = 0; i < n; i++) x[i] *= g;
+  return x;
+}
+
+// Adds mains hum: harmonics { k: dB relative to the fundamental }, fundamental level in
+// dBFS (a number, or a function of time), frequency in Hz (a number or function of time).
+export function addHum(x, sampleRate, { freq = 50, levelDb = -70, harmonics = { 1: 0, 3: 3, 5: -3, 7: -9 }, seed = 5 } = {}) {
+  const rand = mulberry32(seed);
+  const parts = Object.entries(harmonics).map(([k, rel]) => ({ k: Number(k), a: db(rel), ph: rand() * 2 * Math.PI }));
+  const f = typeof freq === 'function' ? freq : () => freq;
+  const L = typeof levelDb === 'function' ? levelDb : () => levelDb;
+  const y = Float32Array.from(x);
+  let phase = 0; // fundamental phase, integrated so drift stays continuous
+  for (let i = 0; i < y.length; i++) {
+    const t = i / sampleRate;
+    phase += (2 * Math.PI * f(t)) / sampleRate;
+    const g = db(L(t));
+    let s = 0;
+    for (const p of parts) s += p.a * Math.sin(p.k * phase + p.ph);
+    y[i] += g * s;
+  }
+  return y;
+}
+
+export function tone(sampleRate, seconds, freq, levelDb) {
+  const g = db(levelDb);
+  return Float32Array.from({ length: Math.round(sampleRate * seconds) }, (_, i) => g * Math.sin((2 * Math.PI * freq * i) / sampleRate));
+}

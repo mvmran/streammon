@@ -6,6 +6,8 @@ export const DEFAULT_ALERTS = {
   truePeak: { enabled: true, dbtp: -1 },
   shortTermHigh: { enabled: true, lufs: -10, seconds: 10 },
   integratedOff: { enabled: true, target: -14, tolerance: 4, minSeconds: 60 },
+  // Mains hum: these also configure the detector (mains frequency, alert level, speech target).
+  hum: { enabled: true, mainsFrequencyHz: 50, alertLevelDbfs: -75, speechTargetLufs: -18, seconds: 5 },
   clearAfterSec: 5, // an alert stays up until its condition has been absent this long
   sound: false, // off by default: this runs during services
 };
@@ -15,7 +17,14 @@ export const ALERT_LABELS = {
   truePeak: 'True peak',
   shortTermHigh: 'Too loud',
   integratedOff: 'Integrated loudness off target',
+  hum: 'Mains hum',
 };
+
+// The detector settings held in the alert configuration.
+export function humOptionsFrom(config) {
+  const h = (config && config.hum) || DEFAULT_ALERTS.hum;
+  return { mainsFrequencyHz: h.mainsFrequencyHz, alertLevelDbfs: h.alertLevelDbfs, speechTargetLufs: h.speechTargetLufs };
+}
 
 export function mergeAlertConfig(base, override = {}) {
   const out = structuredClone(base);
@@ -33,7 +42,7 @@ export class AlertMonitor {
   }
 
   reset() {
-    this.run = { clipping: 0, shortTermHigh: 0 };
+    this.run = { clipping: 0, shortTermHigh: 0, hum: 0 };
     this.active = {}; // id -> { since, lastSeen, message }
   }
 
@@ -52,6 +61,13 @@ export class AlertMonitor {
     this.run.shortTermHigh = row.shortTerm > c.shortTermHigh.lufs ? this.run.shortTermHigh + 1 : 0;
     if (c.shortTermHigh.enabled && this.run.shortTermHigh >= c.shortTermHigh.seconds) {
       out.shortTermHigh = `Short-term ${fmt(row.shortTerm)} LUFS above ${c.shortTermHigh.lufs} for ${this.run.shortTermHigh} s`;
+    }
+    const hm = c.hum;
+    const humLoud = row.humStatus === 'PRESENT' && row.humLevelDb > hm.alertLevelDbfs;
+    this.run.hum = humLoud ? this.run.hum + 1 : 0;
+    if (hm.enabled && this.run.hum >= hm.seconds) {
+      const proj = Number.isFinite(row.humProjectedDb) ? `; at ${hm.speechTargetLufs} LUFS speech it would be ${fmt(row.humProjectedDb)} dBFS` : '';
+      out.hum = `${fmt(row.humLevelDb)} dBFS at ${row.humFrequencyHz.toFixed(2)} Hz${proj}`;
     }
     const io = c.integratedOff;
     if (io.enabled && row.t >= io.minSeconds && Number.isFinite(row.integrated) && Math.abs(row.integrated - io.target) > io.tolerance) {

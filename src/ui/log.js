@@ -5,6 +5,8 @@ import { fmtDb, fmtDuration, escapeHtml } from './format.js';
 const MAX_ROWS = 500;
 const MAX_KEPT = 5000;
 
+const fmtHz = (f) => `${f.toFixed(2)} Hz`;
+
 const DETECTOR_NAMES = { dwell: 'dwell', pileup: 'pile-up', fullscale: 'full scale' };
 
 export class EventLog {
@@ -43,6 +45,7 @@ export class EventLog {
 
   // Converts an analyzer status event to a log entry.
   static fromEvent(e, clock, seekable = false) {
+    if (e.type.startsWith('hum-')) return EventLog.fromHumEvent(e, clock, seekable);
     const det = e.detectors.map((d) => DETECTOR_NAMES[d] || d).join(' + ');
     if (e.type === 'start') {
       return {
@@ -64,5 +67,13 @@ export class EventLog {
       detail: [`lasted ${fmtDuration(e.duration)}`, det && `detectors: ${det}`, e.fullScaleSamples ? `${e.fullScaleSamples} full-scale samples` : ''].filter(Boolean).join(' · '),
       seekable,
     };
+  }
+
+  static fromHumEvent(e, clock, seekable = false) {
+    const base = { clock, t: e.t, kind: 'hum', seekable };
+    if (e.type === 'hum-onset') return { ...base, title: 'Mains hum detected', detail: `${fmtDb(e.levelDb)} dBFS at ${fmtHz(e.frequencyHz)} (${e.mainsHz} Hz mains)` };
+    if (e.type === 'hum-offset') return { ...base, kind: 'CLEAN', title: 'Mains hum gone', detail: `now ${e.status.toLowerCase()} · lasted ${fmtDuration(e.duration)}` };
+    if (e.type === 'hum-step') return { ...base, title: 'Hum level step', detail: `${fmtDb(e.beforeDb)} → ${fmtDb(e.afterDb)} dBFS (${fmtDb(e.changeDb)} dB)` };
+    return { ...base, kind: e.warning ? 'alert' : 'info', title: e.warning ? 'Hum settings' : 'Mains setting', detail: e.message };
   }
 }

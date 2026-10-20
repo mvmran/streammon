@@ -20,6 +20,7 @@ const SHARED = [
   'src/ui/charts.js',
   'src/ui/format.js',
   'src/ui/help.js',
+  'src/ui/hum-view.js',
   'src/ui/log.js',
   'src/ui/meters.js',
   'src/ui/session.js',

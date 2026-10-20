@@ -6,9 +6,11 @@ import { StreamAnalyzer } from '../dsp/analyzer.js';
 class StreamAnalyzerProcessor extends AudioWorkletProcessor {
   constructor(options) {
     super();
-    const clipOptions = (options.processorOptions && options.processorOptions.clipOptions) || {};
+    const po = options.processorOptions || {};
     this.analyzer = new StreamAnalyzer(sampleRate, {
-      clipOptions,
+      clipOptions: po.clipOptions || {},
+      humOptions: po.humOptions || {},
+      onHum: (hum) => this.port.postMessage({ type: 'hum', hum }),
       onFrame: (frame) => this.port.postMessage({ type: 'frame', frame }),
       onSecond: (row) => this.port.postMessage({ type: 'second', row }),
       onEvent: (event) => this.port.postMessage({ type: 'event', event }),
@@ -17,6 +19,7 @@ class StreamAnalyzerProcessor extends AudioWorkletProcessor {
       if (e.data.type === 'reset') this.analyzer.reset();
       else if (e.data.type === 'reset-peaks') this.analyzer.resetPeaks();
       else if (e.data.type === 'reset-integrated') this.analyzer.resetIntegrated();
+      else if (e.data.type === 'hum-config') this.analyzer.setHumOptions(e.data.options);
       else if (e.data.type === 'finish') {
         this.analyzer.finish();
         this.port.postMessage({ type: 'summary', summary: this.analyzer.summary() });

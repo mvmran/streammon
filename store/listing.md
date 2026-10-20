@@ -31,6 +31,7 @@ WHAT IT MEASURES
 • Loudness to EBU R128 / ITU-R BS.1770-4: short-term, momentary, integrated (LUFS) and loudness range (LRA)
 • True peak (dBTP) with 4x oversampling
 • Crest factor, stereo correlation and a MONO indicator
+• Mains hum detection (50 or 60 Hz): present / not detected / masked by music, level, harmonics, and how loud it would be if the speech were turned up
 • Spectrum, spectrogram and octave balance (in the full dashboard)
 
 ALERTS AND RECORDS

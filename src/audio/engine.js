@@ -5,8 +5,9 @@ const WORKLET_URL = new URL('./analyzer-worklet.js', import.meta.url);
 const FILE_WORKER_URL = new URL('./file-worker.js', import.meta.url);
 
 export class AudioEngine {
-  constructor({ onFrame, onSecond, onEvent, onEnded } = {}) {
-    this.handlers = { onFrame, onSecond, onEvent, onEnded };
+  constructor({ onFrame, onSecond, onEvent, onEnded, onHum } = {}) {
+    this.handlers = { onFrame, onSecond, onEvent, onEnded, onHum };
+    this.humOptions = {}; // mains hum detector settings, applied at start and on change
     this.ctx = null;
     this.stream = null;
     this.source = null;
@@ -31,6 +32,7 @@ export class AudioEngine {
       channelCount: 2,
       channelCountMode: 'explicit',
       channelInterpretation: 'speakers', // a mono source is copied to both channels
+      processorOptions: { humOptions: this.humOptions },
     });
     this.node.port.onmessage = (e) => this.onMessage(e.data);
     // The worklet must reach the destination to be pulled; keep it silent.
@@ -48,6 +50,7 @@ export class AudioEngine {
     if (msg.type === 'frame' && h.onFrame) h.onFrame(msg.frame);
     else if (msg.type === 'second' && h.onSecond) h.onSecond(msg.row);
     else if (msg.type === 'event' && h.onEvent) h.onEvent(msg.event);
+    else if (msg.type === 'hum' && h.onHum) h.onHum(msg.hum);
     else if (msg.type === 'summary' && this.summaryResolve) {
       this.summaryResolve(msg.summary);
       this.summaryResolve = null;
@@ -114,6 +117,12 @@ export class AudioEngine {
     }
   }
 
+  // Mains hum settings (e.g. 50 / 60 Hz): used from the next start, and applied now if running.
+  setHumOptions(options) {
+    this.humOptions = { ...options };
+    if (this.node) this.node.port.postMessage({ type: 'hum-config', options: this.humOptions });
+  }
+
   // Restart the max true peak / integrated loudness from now (meter clicks).
   resetPeaks() {
     if (this.node) this.node.port.postMessage({ type: 'reset-peaks' });
@@ -177,7 +186,7 @@ export class AudioEngine {
 }
 
 // Analyses a decoded AudioBuffer in a worker, faster than real time.
-export function analyseBuffer(buffer, { onProgress, clipOptions } = {}) {
+export function analyseBuffer(buffer, { onProgress, clipOptions, humOptions } = {}) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(FILE_WORKER_URL, { type: 'module' });
     const chunk = buffer.sampleRate * 10;
@@ -209,7 +218,7 @@ export function analyseBuffer(buffer, { onProgress, clipOptions } = {}) {
       worker.terminate();
       reject(new Error(e.message || 'Analysis worker failed'));
     };
-    worker.postMessage({ type: 'start', sampleRate: buffer.sampleRate, clipOptions });
+    worker.postMessage({ type: 'start', sampleRate: buffer.sampleRate, clipOptions, humOptions });
     send();
   });
 }

@@ -97,6 +97,51 @@
         </div>
       </section>
 
+      <section class="hum" aria-label="Mains hum">
+        <div class="panel hum-panel">
+          <div class="panel-head">
+            <h2 data-help="hum">Mains hum <span id="hum-mains" class="muted small">50 Hz mains</span></h2>
+            <div id="hum-listen" class="hum-listen" hidden>
+              <label class="field inline"><span>Gain</span>
+                <select id="hum-gain">
+                  <option value="20">+20 dB</option>
+                  <option value="30">+30 dB</option>
+                  <option value="40" selected>+40 dB</option>
+                  <option value="50">+50 dB</option>
+                </select>
+              </label>
+              <button id="hum-listen-hum" class="btn" type="button">Listen to isolated hum</button>
+              <button id="hum-listen-ctl" class="btn ghost" type="button">Listen to off-frequency control</button>
+              <span id="hum-listen-note" class="muted small"></span>
+            </div>
+          </div>
+          <div class="hum-body">
+            <div id="hum-status" class="hum-status" data-status="IDLE">
+              <div class="big"><span id="hum-status-icon" aria-hidden="true"></span><span id="hum-status-text">--</span></div>
+              <div id="hum-status-detail" class="sub"></div>
+            </div>
+            <dl class="hum-facts">
+              <dt>Frequency</dt><dd id="hum-freq" class="tabular">--</dd>
+              <dt>Level (1 s)</dt><dd id="hum-level" class="tabular">--</dd>
+              <dt>Prominence</dt><dd id="hum-prom" class="tabular">--</dd>
+              <dt>In quiet passages</dt><dd id="hum-quiet" class="tabular">--</dd>
+              <dt>Against programme</dt><dd id="hum-below" class="tabular">--</dd>
+              <dt id="hum-projected-label">At -18 LUFS speech</dt><dd id="hum-projected" class="tabular">--</dd>
+              <dt>Harmonic signature</dt><dd id="hum-signature">--</dd>
+            </dl>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2 data-help="hum-harmonics">Hum harmonics <span class="muted small">dB vs fundamental</span></h2></div>
+          <div class="chart-wrap"><canvas id="hum-harmonics" height="170" aria-label="Hum harmonic levels relative to the fundamental"></canvas></div>
+          <div class="legend small hum-legend"><span><i class="sw solid"></i>clear</span><span><i class="sw faded"></i>tentative</span><span><i class="sw outline"></i>below noise floor (outline shows the floor)</span></div>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2 data-help="hum-history">Hum vs loudness</h2></div>
+          <div class="chart-wrap"><canvas id="hum-history" height="190" aria-label="Hum level and short-term loudness over time"></canvas></div>
+        </div>
+      </section>
+
       <section class="bottom">
         <div class="panel log-panel">
           <div class="panel-head">
@@ -149,6 +194,12 @@
           <label>Target <input type="number" name="integratedOff.target" min="-30" max="-5" step="0.5" /> LUFS</label>
           <label>± <input type="number" name="integratedOff.tolerance" min="0.5" max="10" step="0.5" /> LU</label>
           <label>after <input type="number" name="integratedOff.minSeconds" min="10" max="3600" step="10" /> s</label>
+        </fieldset>
+        <fieldset>
+          <legend><label><input type="checkbox" name="hum.enabled" /> Mains hum</label></legend>
+          <label>Mains <select name="hum.mainsFrequencyHz"><option value="50">50 Hz</option><option value="60">60 Hz</option></select></label>
+          <label>Alert above <input type="number" name="hum.alertLevelDbfs" min="-110" max="-30" step="1" /> dBFS</label>
+          <label>Speech target <input type="number" name="hum.speechTargetLufs" min="-30" max="-10" step="1" /> LUFS</label>
         </fieldset>
         <fieldset>
           <legend>Sound</legend>

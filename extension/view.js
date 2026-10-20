@@ -9,6 +9,7 @@ import { EventLog } from './src/ui/log.js';
 import { SpectrumView } from './src/ui/spectrum.js';
 import { loadAlertConfig, setupSettings } from './src/ui/settings.js';
 import { setupHelp } from './src/ui/help.js';
+import { HumView } from './src/ui/hum-view.js';
 import { fmtDuration, fmtClock, download, escapeHtml } from './src/ui/format.js';
 
 const $ = (id) => document.getElementById(id);
@@ -34,7 +35,10 @@ if ($('settings')) {
   });
   if (location.hash === '#settings') $('settings-btn').click();
 }
-window.addEventListener('storage', () => (state.cfg = loadAlertConfig()));
+window.addEventListener('storage', () => {
+  state.cfg = loadAlertConfig();
+  humView.renderMains();
+});
 
 const meters = new MetersView(() => state.cfg);
 const xFormat = timeFormatter(() => ({ mode: 'live', startWall: state.session ? state.session.startWall : 0 }));
@@ -43,6 +47,8 @@ if ($('history')) charts.push(createHistoryChart($('history'), xFormat, { compac
 if ($('peaks')) charts.push(createPeakChart($('peaks'), xFormat, () => state.cfg));
 const spectrum = $('bands') ? new SpectrumView({ bands: $('bands'), sgram: $('sgram'), balance: $('balance') }) : null;
 const log = new EventLog($('log-body'), $('log-empty'));
+const humView = new HumView(() => state.cfg, { xFormat });
+if (humView.chart) charts.push(humView.chart);
 
 function redraw() {
   showRecent(charts, state.history, state.range);
@@ -66,6 +72,7 @@ function resetSession() {
   state.frame = null;
   log.clear();
   meters.reset('Waiting for audio…');
+  humView.reset();
   if (spectrum) spectrum.clear();
   renderAlerts();
   redraw();
@@ -100,6 +107,7 @@ const hub = connectHub({
     state.active = m.alerts || {};
     if (m.lastRow) meters.renderRow(m.lastRow);
     if (m.lastFrame && m.session.running) meters.renderFrame(m.lastFrame);
+    if (m.hum) humView.render(m.hum);
     applySession(m.session);
     renderAlerts();
     redraw();
@@ -128,6 +136,9 @@ const hub = connectHub({
   },
   spectrum(m) {
     state.spectrum = m;
+  },
+  hum(m) {
+    humView.render(m.hum);
   },
 });
 

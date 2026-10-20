@@ -85,6 +85,19 @@ async function main() {
     check(/YouTube/.test(await page.textContent('#tooltip')), 'hovering a card shows its help text');
     await page.mouse.move(5, 5);
 
+    console.log('Mains hum, file mode (Reference_speech_recording, 50 Hz hum at -70 dBFS):');
+    await page.setInputFiles('#file-input', join(ROOT, 'test-audio', 'Reference_speech_recording.wav'));
+    await page.waitForFunction(() => /Reference_speech/.test(document.getElementById('file-name').textContent), null, { timeout: 30000 });
+    await page.waitForSelector('#file-result:not([hidden])');
+    check((await page.textContent('#hum-status-text')) === 'PRESENT', `hum panel says PRESENT (${await page.textContent('#hum-status-text')})`);
+    check(/^50\.0\d Hz$/.test(await page.textContent('#hum-freq')), `hum frequency ${await page.textContent('#hum-freq')}`);
+    const humLog = await page.textContent('#log-body');
+    check(/Mains hum detected/.test(humLog) && /Alert: Mains hum/.test(humLog), 'hum onset and hum alert in the event log');
+    await page.click('#hum-listen-hum');
+    await page.waitForFunction(() => /^Hum from/.test(document.getElementById('hum-listen-note').textContent), null, { timeout: 30000 });
+    check(true, `isolated hum plays (${await page.textContent('#hum-listen-note')})`);
+    await page.locator('section.hum').screenshot({ path: join(OUT, 'hum-panel.png') });
+
     console.log('Audio input device (fake device playing 18Oct2026-30, clipped):');
     await page.selectOption('#source', 'device');
     await page.click('#start');

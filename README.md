@@ -148,6 +148,42 @@ The text under the status says how it was detected:
 - **Peak per second**: a flat line of peaks at one level is the visual signature of
   clipping or limiting.
 
+## Mains hum
+
+The **Mains hum** panel watches for powerline hum: a steady tone at the mains frequency
+and its multiples. Set **50 Hz or 60 Hz** under *Alerts & settings*; 50 Hz is the default.
+Hum is most audible in speech and pauses, because music covers it.
+
+- **PRESENT:** a mains-locked tone that stands out from its surroundings, stays on
+  frequency, keeps a steady phase and level, and lasts at least 5 of the last 10 seconds.
+  The panel shows its frequency, level, how far it stands out, and its level in quiet
+  passages.
+- **NOT DETECTED:** no hum, and the programme near the mains frequency is quiet enough
+  that a hum at the alert level would have shown.
+- **MASKED:** the programme near the mains frequency (bass notes, for example) is too loud
+  to judge. It never claims "no hum" during loud music.
+
+**What to watch:**
+- **Projection:** where the hum would sit if the speech were brought up to −18 LUFS (the
+  speech target is adjustable). Quiet speech that viewers turn up makes hum much easier to
+  hear.
+- **Hum vs loudness chart:** shows whether hum appears when a particular section starts,
+  such as speech or one microphone.
+- **Harmonic signature hint:** strong 3rd and 5th harmonics suggest a ground loop or an
+  unbalanced line; strong 2nd and 4th suggest a rectifier or power supply. Only harmonics
+  that stand clear of the noise floor count, and it takes about 20 s to measure. Treat it
+  as a hint, not a verdict.
+- **Event log:** onset, offset, level steps of 6 dB or more, and changes to the mains
+  setting.
+- **Alert:** hum PRESENT and above −75 dBFS for 5 s raises an alert (adjustable).
+
+In **File** mode, **Listen to isolated hum** plays 20 s from the current position with
+everything except narrow slices around the hum harmonics removed, raised by the chosen gain.
+**Listen to off-frequency control** plays the same slices 3.5 Hz away for comparison.
+
+Musical notes near the mains frequency (G1 49.0 Hz, A1 55.0 Hz, G2 98 Hz) are not
+reported: at the 4-second analysis window they are clearly off the mains frequency.
+
 ## Alerts and exports
 
 **Alerts & settings** sets the thresholds. Defaults:

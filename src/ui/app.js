@@ -2,7 +2,8 @@
 
 import { AudioEngine, analyseBuffer } from '../audio/engine.js';
 import { listInputDevices, devicesHaveLabels, openInputDevice, openTabCapture, streamSampleRate, decodeFile } from '../audio/sources.js';
-import { AlertMonitor, ALERT_LABELS } from '../dsp/alerts.js';
+import { AlertMonitor, ALERT_LABELS, humOptionsFrom } from '../dsp/alerts.js';
+import { isolateHum } from '../dsp/hum-isolate.js';
 import { summaryJson } from '../dsp/report.js';
 import { TimeChart } from './charts.js';
 import { SpectrumView } from './spectrum.js';
@@ -11,6 +12,7 @@ import { SessionRecorder } from './session.js';
 import { setupSettings } from './settings.js';
 import { setupHelp } from './help.js';
 import { MetersView, renderAlertBanners, createHistoryChart, createPeakChart, showRecent, timeFormatter, bindMeterResets } from './meters.js';
+import { HumView } from './hum-view.js';
 import { fmtDb, fmtDuration, fmtClock, fmtStamp, fileStamp, download } from './format.js';
 
 const $ = (id) => document.getElementById(id);
@@ -24,6 +26,8 @@ const el = {
   fileProgress: $('file-progress'), fileResult: $('file-result'), fileName: $('file-name'), fileSummary: $('file-summary'),
   play: $('play'), playPos: $('play-pos'), exportCsv: $('export-csv'), exportJson: $('export-json'),
   recordDisk: $('record-disk'), clearLog: $('clear-log'), dRate: $('d-rate'),
+  humListen: $('hum-listen'), humGain: $('hum-gain'), humListenHum: $('hum-listen-hum'), humListenCtl: $('hum-listen-ctl'),
+  humListenNote: $('hum-listen-note'),
 };
 
 const state = {
@@ -54,6 +58,10 @@ const engine = new AudioEngine({
   onFrame: (f) => (state.lastFrame = f),
   onSecond: onRow,
   onEvent: onEvent,
+  onHum: (h) => {
+    if (state.mode === 'file') h.t += state.playOffset;
+    humView.render(h);
+  },
   onEnded: (why) => {
     if (state.mode === 'file') {
       state.playing = false;
@@ -67,11 +75,17 @@ const engine = new AudioEngine({
 });
 
 state.alertCfg = setupSettings($('settings'), $('settings-btn'), (cfg) => {
+  const mainsChanged = cfg.hum.mainsFrequencyHz !== state.alertCfg.hum.mainsFrequencyHz;
   state.alertCfg = cfg;
   state.alerts = new AlertMonitor(cfg);
+  engine.setHumOptions(humOptionsFrom(cfg));
+  humView.renderMains();
   renderAlerts();
+  // A loaded file was analysed with the old mains frequency: analyse it again.
+  if (mainsChanged && state.mode === 'file' && state.file) handleFile(state.file.source);
 });
 state.alerts = new AlertMonitor(state.alertCfg);
+engine.setHumOptions(humOptionsFrom(state.alertCfg));
 
 const log = new EventLog($('log-body'), $('log-empty'), { onSeek: (t) => state.mode === 'file' && playFrom(t) });
 const recorder = new SessionRecorder();
@@ -81,6 +95,7 @@ const meters = new MetersView(() => state.alertCfg);
 const xFormat = timeFormatter(() => state);
 const historyChart = createHistoryChart($('history'), xFormat);
 const peakChart = createPeakChart($('peaks'), xFormat, () => state.alertCfg);
+const humView = new HumView(() => state.alertCfg, { xFormat });
 
 let timeline = null; // created when the file panel is first shown (it needs a laid-out width)
 
@@ -152,7 +167,9 @@ function resetReadouts() {
 }
 
 function redrawCharts() {
-  showRecent([historyChart, peakChart], state.history, state.historyRange);
+  // In file mode the hum strip shows the whole file's analysis instead.
+  const charts = state.mode === 'file' ? [historyChart, peakChart] : [historyChart, peakChart, humView.chart];
+  showRecent(charts, state.history, state.historyRange);
 }
 
 let lastTick = performance.now();
@@ -224,6 +241,7 @@ function setMode(mode) {
   el.deviceField.hidden = mode !== 'device';
   el.tabReminder.hidden = mode !== 'tab';
   el.filePanel.hidden = mode !== 'file';
+  el.humListen.hidden = !(mode === 'file' && state.file);
   el.start.hidden = mode === 'file';
   el.stop.hidden = mode === 'file';
   document.querySelectorAll('.seg button').forEach((b) => (b.disabled = false));
@@ -270,6 +288,7 @@ function beginSession() {
   recorder.clear();
   log.clear();
   spectrum.clear();
+  humView.reset();
   renderAlerts();
   resetReadouts();
   redrawCharts();
@@ -328,13 +347,14 @@ async function handleFile(file) {
     label.textContent = 'Analysing…';
     const t0 = performance.now();
     const result = await analyseBuffer(buffer, {
+      humOptions: humOptionsFrom(state.alertCfg),
       onProgress: (p) => {
         bar.style.width = `${Math.round(p * 100)}%`;
         label.textContent = `Analysing… ${Math.round(p * 100)}%`;
       },
     });
     const secs = (performance.now() - t0) / 1000;
-    state.file = { name: file.name, buffer, ...result };
+    state.file = { name: file.name, source: file, buffer, ...result };
     showFileResult(secs);
   } catch (e) {
     showError(`Could not read ${file.name}: ${describeError(e)}`);
@@ -383,6 +403,48 @@ function showFileResult(analysisSecs) {
   el.exportCsv.disabled = el.exportJson.disabled = false;
   state.pausedAt = 0;
   setText(el.playPos, '0:00');
+  // Hum: the whole file's strip, and the final measurement (harmonics, signature).
+  if (s.hum && s.hum.last) humView.render(s.hum.last);
+  humView.setRows(f.rows, 0, s.duration);
+  el.humListen.hidden = false;
+  setText(el.humListenNote, '');
+}
+
+// "Listen to isolated hum" / "off-frequency control": 20 s from the current position,
+// comb-filtered around the mains harmonics, raised by the chosen gain.
+let humAudio = null;
+async function listenToHum(control) {
+  const f = state.file;
+  if (!f) return;
+  if (humAudio) {
+    humAudio.close();
+    humAudio = null;
+  }
+  if (state.playing) togglePlay();
+  const sr = f.buffer.sampleRate;
+  const from = Math.min(state.pausedAt || 0, Math.max(0, f.buffer.duration - 20));
+  const a = Math.floor(from * sr), b = Math.min(f.buffer.length, a + 20 * sr);
+  const L = f.buffer.getChannelData(0).subarray(a, b);
+  const R = f.buffer.numberOfChannels > 1 ? f.buffer.getChannelData(1).subarray(a, b) : L;
+  const mono = new Float32Array(L.length);
+  for (let i = 0; i < mono.length; i++) mono[i] = 0.5 * (L[i] + R[i]);
+  const last = f.summary.hum && f.summary.hum.last;
+  const fundamentalHz = last && last.status === 'PRESENT' ? last.fundamentalHz : state.alertCfg.hum.mainsFrequencyHz;
+  setText(el.humListenNote, 'Preparing…');
+  await new Promise((r) => setTimeout(r, 30)); // let the note paint before the number crunching
+  const r = isolateHum(mono, sr, { fundamentalHz, offsetHz: control ? 3.5 : 0, gainDb: Number(el.humGain.value) });
+  const ctx = new AudioContext({ sampleRate: sr });
+  const buf = ctx.createBuffer(1, r.samples.length, sr);
+  buf.copyToChannel(r.samples, 0);
+  const src = new AudioBufferSourceNode(ctx, { buffer: buf });
+  src.connect(ctx.destination);
+  src.start();
+  src.onended = () => ctx.close();
+  humAudio = ctx;
+  setText(
+    el.humListenNote,
+    `${control ? 'Control' : 'Hum'} from ${fmtDuration(from)} at ${fundamentalHz.toFixed(2)} Hz` + (r.limited ? `, gain limited to +${r.gainDb.toFixed(0)} dB` : `, +${el.humGain.value} dB`),
+  );
 }
 
 async function playFrom(t) {
@@ -461,6 +523,8 @@ el.source.addEventListener('change', async () => {
 el.start.addEventListener('click', startLive);
 el.stop.addEventListener('click', stopLive);
 el.play.addEventListener('click', togglePlay);
+el.humListenHum.addEventListener('click', () => listenToHum(false));
+el.humListenCtl.addEventListener('click', () => listenToHum(true));
 el.fileInput.addEventListener('change', () => handleFile(el.fileInput.files[0]));
 el.dropzone.addEventListener('dragover', (e) => {
   e.preventDefault();

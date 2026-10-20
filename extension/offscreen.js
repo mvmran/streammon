@@ -5,7 +5,7 @@
 
 import { AudioEngine } from './src/audio/engine.js';
 import { streamSampleRate } from './src/audio/sources.js';
-import { AlertMonitor, ALERT_LABELS } from './src/dsp/alerts.js';
+import { AlertMonitor, ALERT_LABELS, humOptionsFrom } from './src/dsp/alerts.js';
 import { summaryJson } from './src/dsp/report.js';
 import { EventLog } from './src/ui/log.js';
 import { SessionRecorder } from './src/ui/session.js';
@@ -30,6 +30,7 @@ const s = {
   lastRow: null,
   status: 'IDLE',
   summary: null,
+  hum: null, // latest mains hum measurement
   alerts: new AlertMonitor(loadAlertConfig()),
 };
 let testAudio = null;
@@ -40,6 +41,11 @@ const engine = new AudioEngine({
   onFrame,
   onSecond,
   onEvent,
+  onHum: (h) => {
+    if (!s.running) return;
+    s.hum = h;
+    broadcast({ type: 'hum', hum: h });
+  },
   onEnded: () => stop('The tab stopped sharing audio (closed or reloaded)'),
 });
 
@@ -122,9 +128,11 @@ async function start({ streamId, testUrl, tab }) {
     lastRow: null,
     status: 'IDLE',
     summary: null,
+    hum: null,
     alerts: new AlertMonitor(loadAlertConfig()),
   });
   recorder.clear();
+  engine.setHumOptions(humOptionsFrom(s.alerts.config));
   // Tab capture mutes the tab, so play the captured audio back to the user.
   await engine.startStream(stream, streamSampleRate(stream), { monitor: !!streamId });
   s.sampleRate = engine.ctx.sampleRate;
@@ -172,7 +180,7 @@ function exportBase() {
 channel.onmessage = async (e) => {
   const m = e.data;
   if (m.type === 'hello') {
-    broadcast({ type: 'snapshot', session: session(), history: s.history, log: s.log, lastFrame: s.lastFrame, lastRow: s.lastRow, alerts: s.alerts.active });
+    broadcast({ type: 'snapshot', session: session(), history: s.history, log: s.log, lastFrame: s.lastFrame, lastRow: s.lastRow, alerts: s.alerts.active, hum: s.hum });
   } else if (m.type === 'stop') {
     stop();
   } else if (m.type === 'reset' && s.running) {
@@ -217,5 +225,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 // Alert settings are edited in the dashboard; pick up changes without losing state.
 window.addEventListener('storage', () => {
+  const before = JSON.stringify(humOptionsFrom(s.alerts.config));
   s.alerts.config = loadAlertConfig();
+  // Re-applying hum settings restarts the hum measurement, so only when they changed.
+  const hum = humOptionsFrom(s.alerts.config);
+  if (JSON.stringify(hum) !== before) engine.setHumOptions(hum);
 });

@@ -130,6 +130,20 @@ async function main() {
     check(badgeAfter === '', 'badge cleared after stop');
     check(await dash.evaluate(() => document.getElementById('status').textContent) === 'IDLE', 'dashboard returns to IDLE');
 
+    console.log('Mains hum (Reference_speech_recording, 50 Hz hum at -70 dBFS):');
+    const speech = wav.replace('18Oct2026-30_min_mark', 'Reference_speech_recording');
+    await sw.evaluate((url) => self.streammonTestStart(url, 'Sister church service (test)'), speech);
+    await panel.waitForFunction(() => document.getElementById('hum-status-text').textContent === 'PRESENT', null, { timeout: 25000 });
+    check(true, 'side panel shows mains hum PRESENT');
+    check(/^50\.0\d Hz$/.test(await panel.textContent('#hum-freq')), `side panel hum frequency ${await panel.textContent('#hum-freq')}`);
+    await dash.waitForFunction(() => /Mains hum detected/.test(document.getElementById('log-body').textContent), null, { timeout: 5000 });
+    check((await dash.textContent('#hum-status-text')) === 'PRESENT', 'dashboard hum panel PRESENT, onset logged');
+    await panel.waitForFunction(() => /Mains hum/.test(document.getElementById('alerts').textContent), null, { timeout: 15000 });
+    check(true, 'mains hum alert banner in the side panel');
+    await panel.screenshot({ path: join(OUT, 'extension-panel-hum.png'), fullPage: true });
+    await dash.locator('section.hum').screenshot({ path: join(OUT, 'extension-dashboard-hum.png') });
+    await panel.click('#stop');
+
     check(errors.length === 0, `no page errors${errors.length ? `:\n    ${errors.join('\n    ')}` : ''}`);
   } catch (e) {
     console.error(e.message);

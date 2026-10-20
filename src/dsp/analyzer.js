@@ -5,31 +5,40 @@
 // Output:
 //   onFrame(frame)   every 100 ms of audio: meters for the display
 //   onSecond(row)    every 1 s of audio: one CSV row with every metric plus clip status
-//   onEvent(event)   status changes: { type: 'start' | 'end', status, t, ... }
+//   onHum(result)    every 0.5 s: mains hum measurement (see hum.js), with audibility
+//   onEvent(event)   clip status changes: { type: 'start' | 'end', status, t, ... };
+//                    hum: { type: 'hum-onset' | 'hum-offset' | 'hum-step' | 'hum-config', t, ... }
 
 import { LoudnessMeter } from './loudness.js';
 import { TruePeakChannel } from './truepeak.js';
 import { ClipDetector, CLEAN, LIMITED, CLIPPING } from './clipdetect.js';
 import { StereoMeter } from './stereo.js';
 import { CrestMeter, toDb } from './crest.js';
+import { HumDetector, PRESENT as HUM_PRESENT, NOT_DETECTED as HUM_NOT_DETECTED, MASKED as HUM_MASKED } from './hum.js';
 
 export { CLEAN, LIMITED, CLIPPING };
 
 const SEVERITY = { [CLEAN]: 0, [LIMITED]: 1, [CLIPPING]: 2 };
 
 export class StreamAnalyzer {
-  constructor(sampleRate, { onFrame = null, onSecond = null, onEvent = null, clipOptions = {} } = {}) {
+  constructor(sampleRate, { onFrame = null, onSecond = null, onEvent = null, onHum = null, clipOptions = {}, humOptions = {} } = {}) {
     this.sampleRate = sampleRate;
     this.frameLen = Math.round(sampleRate * 0.1);
     this.onFrame = onFrame;
     this.onSecond = onSecond;
     this.onEvent = onEvent;
+    this.onHum = onHum;
     this.loudness = new LoudnessMeter(sampleRate);
+    this.hum = new HumDetector(sampleRate, humOptions, {
+      onResult: (r) => this.humResult(r),
+      onEvent: (e) => this.emit(e),
+    });
     this.tp = [new TruePeakChannel(), new TruePeakChannel()];
     this.clip = new ClipDetector(sampleRate, clipOptions);
     this.stereo = new StereoMeter(10); // 1 s
     this.crest = new CrestMeter(30); // 3 s
     this.reset();
+    this.emitHumConfig(); // invalid settings fall back with a logged warning
   }
 
   reset() {
@@ -38,6 +47,10 @@ export class StreamAnalyzer {
     this.clip.reset();
     this.stereo.reset();
     this.crest.reset();
+    this.hum.reset();
+    this.lastHum = null;
+    this.humSeconds = { [HUM_PRESENT]: 0, [HUM_NOT_DETECTED]: 0, [HUM_MASKED]: 0 };
+    this.humMaxDb = -Infinity;
     this.frames = 0; // completed 100 ms frames
     this.n = 0; // frames into the current 100 ms frame
     this.f = { peak: 0, tp: 0, ll: 0, rr: 0, lr: 0 };
@@ -67,6 +80,7 @@ export class StreamAnalyzer {
       const r = right.subarray(i, i + k);
       this.loudness.process(l, r, k);
       const tp = Math.max(this.tp[0].process(l, k), this.tp[1].process(r, k));
+      this.hum.process(l, r, k);
       this.clip.processChannel(0, l, k);
       this.clip.processChannel(1, r, k);
       this.clip.endBlock(k);
@@ -132,6 +146,11 @@ export class StreamAnalyzer {
 
   completeSecond() {
     const c = this.clip.takeSecond();
+    const h = this.lastHum;
+    if (h) {
+      this.humSeconds[h.status]++;
+      if (h.present && h.levelDb > this.humMaxDb) this.humMaxDb = h.levelDb;
+    }
     const t = this.elapsed;
     this.lastClip = c;
     this.statusSeconds[c.status]++;
@@ -163,6 +182,13 @@ export class StreamAnalyzer {
       ceilingDb: c.ceilingDb,
       fullScaleRuns: c.fullScaleRuns,
       fullScaleSamples: c.fullScaleSamples,
+      humMainsHz: this.hum.opt.mainsFrequencyHz,
+      humStatus: h ? h.status : null,
+      humLevelDb: h && h.present ? h.levelDb : null,
+      humFrequencyHz: h && h.present ? h.fundamentalHz : null,
+      humProminenceDb: h && h.present ? h.prominenceDb : null,
+      humProjectedDb: h && h.present ? h.projectedDb : null,
+      humSignature: h && h.present ? h.signature : null,
     };
     this.s = { peak: 0, tp: 0 };
     if (this.onSecond) this.onSecond(row);
@@ -204,6 +230,38 @@ export class StreamAnalyzer {
   emit(e) {
     this.events++;
     if (this.onEvent) this.onEvent(e);
+  }
+
+  // Adds audibility to each hum measurement: how far below the programme it sits, and
+  // where it would land if the speech were brought up to speechTargetLufs (quiet speech
+  // that viewers turn up makes hum much more audible).
+  humResult(r) {
+    const st = this.loudness.shortTerm;
+    const integ = this.loudness.integrated;
+    const programme = Number.isFinite(integ) ? integ : st;
+    r.shortTerm = st;
+    r.programmeLufs = programme;
+    r.belowProgrammeDb = r.present && Number.isFinite(st) ? st - r.levelDb : null;
+    r.projectedDb = r.present && Number.isFinite(programme) ? r.levelDb + (this.hum.opt.speechTargetLufs - programme) : null;
+    r.speechTargetLufs = this.hum.opt.speechTargetLufs;
+    this.lastHum = r;
+    if (this.onHum) this.onHum(r);
+  }
+
+  // Changes the hum settings (e.g. mains frequency) mid-session; logged as an event.
+  setHumOptions(options) {
+    const prev = this.hum.opt.mainsFrequencyHz;
+    this.hum.configure(options);
+    this.lastHum = null;
+    this.emitHumConfig(prev);
+  }
+
+  emitHumConfig(prevMainsHz = null) {
+    const o = this.hum.opt;
+    if (prevMainsHz !== null && prevMainsHz !== o.mainsFrequencyHz) {
+      this.emit({ type: 'hum-config', t: this.elapsed, mainsHz: o.mainsFrequencyHz, message: `Mains setting changed to ${o.mainsFrequencyHz} Hz` });
+    }
+    for (const w of this.hum.configWarnings) this.emit({ type: 'hum-config', t: this.elapsed, mainsHz: o.mainsFrequencyHz, message: w, warning: true });
   }
 
   // Meter resets from the UI, e.g. after changing a gain while tuning.
@@ -253,6 +311,12 @@ export class StreamAnalyzer {
       fullScaleSamples: this.fullScaleSamples,
       ceilingDb: this.lastClip ? this.lastClip.ceilingDb : null,
       worstStatus: Object.keys(secs).reduce((w, s) => (secs[s] && SEVERITY[s] > SEVERITY[w] ? s : w), CLEAN),
+      hum: {
+        mainsHz: this.hum.opt.mainsFrequencyHz,
+        statusSeconds: { ...this.humSeconds },
+        maxLevelDb: this.humMaxDb,
+        last: this.lastHum,
+      },
     };
   }
 }

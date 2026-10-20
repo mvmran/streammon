@@ -4,11 +4,13 @@
 import { css, fmtDb } from './format.js';
 
 const STATUS_COLOUR = { CLIPPING: '--critical', LIMITED: '--warning', CLEAN: '--good' };
+const STATUS_FAINT = new Set(['CLEAN']); // drawn at reduced opacity: the normal state
 const X_STEPS = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
 
 export class TimeChart {
   // opts: { yMin, yMax, yStep, series: [{ key, label, colour }], band: { from, to, label },
-  //         refs: (chart) => [{ y, label, dash }], statusStrip, xFormat(t), onClick(t), unit }
+  //         refs: (chart) => [{ y, label, dash }], statusStrip, statusKey, statusColours,
+  //         statusFaint, xFormat(t), onClick(t), unit }
   constructor(canvas, opts) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
@@ -118,7 +120,8 @@ export class TimeChart {
     for (const s of this.opts.series) {
       lines.push(`<div class="row"><span class="sw" style="background:var(${s.colour})"></span><span class="k">${s.label}</span><span class="val">${fmtDb(row[s.key])}</span></div>`);
     }
-    if (row.status) lines.push(`<div class="row"><span class="k">Status</span><span class="val">${row.status}</span></div>`);
+    const sk = this.opts.statusKey || 'status';
+    if (row[sk]) lines.push(`<div class="row"><span class="k">Status</span><span class="val">${row[sk]}</span></div>`);
     const tip = this.tooltip;
     tip.innerHTML = lines.join('');
     tip.hidden = false;
@@ -220,10 +223,13 @@ export class TimeChart {
     if (o.statusStrip) {
       const sy = p.b + 3;
       const bw = Math.max(1, this.x(this.xStart + dt) - this.x(this.xStart));
+      const key = o.statusKey || 'status';
+      const colours = o.statusColours || STATUS_COLOUR;
+      const faint = o.statusFaint || STATUS_FAINT;
       for (let i = first; i < rows.length; i++) {
-        const c = STATUS_COLOUR[rows[i].status];
+        const c = colours[rows[i][key]];
         if (!c) continue;
-        ctx.globalAlpha = rows[i].status === 'CLEAN' ? 0.35 : 1;
+        ctx.globalAlpha = faint.has(rows[i][key]) ? 0.35 : 1;
         ctx.fillStyle = css(c);
         const x = this.x(rows[i].t - dt);
         ctx.fillRect(x, sy, bw + 0.5, p.strip - 4);
