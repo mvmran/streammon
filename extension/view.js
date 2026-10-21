@@ -47,8 +47,7 @@ if ($('history')) charts.push(createHistoryChart($('history'), xFormat, { compac
 if ($('peaks')) charts.push(createPeakChart($('peaks'), xFormat, () => state.cfg));
 const spectrum = $('bands') ? new SpectrumView({ bands: $('bands'), sgram: $('sgram'), balance: $('balance') }) : null;
 const log = new EventLog($('log-body'), $('log-empty'));
-const humView = new HumView(() => state.cfg, { xFormat });
-if (humView.chart) charts.push(humView.chart);
+const humView = new HumView(() => state.cfg);
 
 function redraw() {
   showRecent(charts, state.history, state.range);

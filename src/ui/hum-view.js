@@ -1,9 +1,8 @@
-// Mains hum panel: status, measurements, harmonic bar chart and the hum-vs-loudness strip.
+// Mains hum panel: status, measurements and the harmonic bar chart.
 // Shared by the web app, the extension dashboard and (in part) the side panel; every
 // element is optional and looked up by id.
 
-import { TimeChart } from './charts.js';
-import { css, fmtDb, fmtDuration } from './format.js';
+import { css, fmtDb } from './format.js';
 
 const STATUS_ICON = { PRESENT: '⚠', 'NOT DETECTED': '✓', MASKED: '…', IDLE: '' };
 const SIGNATURE = {
@@ -15,7 +14,7 @@ const IDS = {
   status: 'hum-status', statusText: 'hum-status-text', statusIcon: 'hum-status-icon', statusDetail: 'hum-status-detail',
   mains: 'hum-mains', freq: 'hum-freq', level: 'hum-level', prominence: 'hum-prom', signature: 'hum-signature',
   quiet: 'hum-quiet', below: 'hum-below', projected: 'hum-projected', projectedLabel: 'hum-projected-label',
-  harmonics: 'hum-harmonics', history: 'hum-history',
+  harmonics: 'hum-harmonics',
 };
 
 function setText(node, text) {
@@ -24,7 +23,7 @@ function setText(node, text) {
 
 export class HumView {
   // getConfig() returns the alert configuration (its .hum section holds the hum settings).
-  constructor(getConfig, { xFormat } = {}, doc = document) {
+  constructor(getConfig, doc = document) {
     this.getConfig = getConfig;
     this.el = Object.fromEntries(Object.entries(IDS).map(([k, id]) => [k, doc.getElementById(id)]));
     this.result = null;
@@ -32,24 +31,6 @@ export class HumView {
       this.bars = this.el.harmonics;
       this.cssHeight = Number(this.bars.getAttribute('height')) || 160;
       new ResizeObserver(() => this.drawHarmonics()).observe(this.bars.parentElement);
-    }
-    if (this.el.history) {
-      this.chart = new TimeChart(this.el.history, {
-        yMin: -110, yMax: 0, yStep: 20, unit: 'LUFS / dBFS',
-        series: [
-          { key: 'shortTerm', label: 'Short-term LUFS', colour: '--series-1' },
-          { key: 'humLevelDb', label: 'Hum level (dBFS)', colour: '--series-2' },
-        ],
-        refs: () => {
-          const h = this.getConfig().hum;
-          return [{ y: h.alertLevelDbfs, label: `hum alert ${fmtDb(h.alertLevelDbfs, 0)} dBFS`, colour: '--serious' }];
-        },
-        statusStrip: true,
-        statusKey: 'humStatus',
-        statusColours: { PRESENT: '--serious', 'NOT DETECTED': '--good', MASKED: '--muted' },
-        statusFaint: new Set(['NOT DETECTED', 'MASKED']),
-        xFormat: xFormat || ((t) => fmtDuration(t)),
-      });
     }
     this.reset();
   }
@@ -99,11 +80,6 @@ export class HumView {
     setText(this.el.projectedLabel, `At ${r.speechTargetLufs} LUFS speech`);
     setText(this.el.projected, present && r.projectedDb !== null ? `hum would be ${fmtDb(r.projectedDb)} dBFS` : '--');
     this.drawHarmonics();
-  }
-
-  // Strip chart rows (1 s rows from the analyzer) over [start, end].
-  setRows(rows, start, end) {
-    if (this.chart) this.chart.setData(rows, start, end);
   }
 
   // Harmonics k = 1…10 in dB relative to the fundamental (phase-locked average). Solid:

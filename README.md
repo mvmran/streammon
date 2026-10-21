@@ -167,8 +167,6 @@ Hum is most audible in speech and pauses, because music covers it.
 - **Projection:** where the hum would sit if the speech were brought up to −18 LUFS (the
   speech target is adjustable). Quiet speech that viewers turn up makes hum much easier to
   hear.
-- **Hum vs loudness chart:** shows whether hum appears when a particular section starts,
-  such as speech or one microphone.
 - **Harmonic signature hint:** strong 3rd and 5th harmonics suggest a ground loop or an
   unbalanced line; strong 2nd and 4th suggest a rectifier or power supply. Only harmonics
   that stand clear of the noise floor count, and it takes about 20 s to measure. Treat it

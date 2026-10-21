@@ -95,7 +95,7 @@ const meters = new MetersView(() => state.alertCfg);
 const xFormat = timeFormatter(() => state);
 const historyChart = createHistoryChart($('history'), xFormat);
 const peakChart = createPeakChart($('peaks'), xFormat, () => state.alertCfg);
-const humView = new HumView(() => state.alertCfg, { xFormat });
+const humView = new HumView(() => state.alertCfg);
 
 let timeline = null; // created when the file panel is first shown (it needs a laid-out width)
 
@@ -167,9 +167,7 @@ function resetReadouts() {
 }
 
 function redrawCharts() {
-  // In file mode the hum strip shows the whole file's analysis instead.
-  const charts = state.mode === 'file' ? [historyChart, peakChart] : [historyChart, peakChart, humView.chart];
-  showRecent(charts, state.history, state.historyRange);
+  showRecent([historyChart, peakChart], state.history, state.historyRange);
 }
 
 let lastTick = performance.now();
@@ -405,7 +403,6 @@ function showFileResult(analysisSecs) {
   setText(el.playPos, '0:00');
   // Hum: the whole file's strip, and the final measurement (harmonics, signature).
   if (s.hum && s.hum.last) humView.render(s.hum.last);
-  humView.setRows(f.rows, 0, s.duration);
   el.humListen.hidden = false;
   setText(el.humListenNote, '');
 }

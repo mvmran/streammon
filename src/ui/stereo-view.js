@@ -15,6 +15,11 @@ const HIDE_BELOW = 50; // dB below the loudest band: too quiet to place reliably
 const JUDGE_DB = -70;
 const R_MIN = 1.2, R_MAX = 7; // dot radius (CSS px); hover still finds small dots within 12 px
 const BAL_TICK = 6; // dB, gridlines either side of centre
+// Rough area where the bands of a healthy stereo mix sit: a half-ellipse hanging from the
+// mono line, ±3 dB of balance wide and down to correlation +0.2 at the centre. A guide, not
+// a rule: bass belongs near the top, wide reverb or keys can dip a little below.
+const ZONE_BAL_DB = 3;
+const ZONE_CORR = 0.2;
 
 const labelHz = (f) => (f >= 1000 ? `${Math.round(f / 100) / 10}k` : String(Math.round(f)));
 // Balance in dB (R over L) to -1…+1: the share of energy, (R² − L²) / (R² + L²).
@@ -52,7 +57,8 @@ export class StereoBandsView {
     el.innerHTML =
       '<span>31 Hz</span>' +
       SHADES.map((c) => `<span class="sw" style="background:${c}"></span>`).join('') +
-      '<span>16k</span><span class="sep">dot size = band level</span>';
+      '<span>16k</span><span class="sep">size = level</span>' +
+      '<span class="sep"><span class="zone"></span> healthy mix</span>';
     this.canvas.parentElement.after(el);
   }
 
@@ -135,6 +141,18 @@ export class StereoBandsView {
       ctx.lineTo(x, p.b);
       ctx.stroke();
     }
+    // Healthy-mix zone.
+    const zx = xOf(ZONE_BAL_DB) - cx, zy = yOf(ZONE_CORR) - yOf(1);
+    ctx.beginPath();
+    ctx.ellipse(cx, yOf(1), zx, zy, 0, 0, Math.PI);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fill();
+    ctx.setLineDash([4, 3]);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = css('--muted');
     ctx.textAlign = 'center';
     const ly = p.b + 12;
     ctx.fillText('L', p.l + 4, ly);
