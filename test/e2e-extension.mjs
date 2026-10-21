@@ -77,9 +77,13 @@ async function main() {
     check(badge === 'CLIP', `toolbar badge reads CLIP (${badge})`);
     check(/Clipping started/.test(await panel.textContent('#log-body')), 'clipping event in the side panel log');
     check(await panel.isVisible('.alert'), 'clipping alert banner in the side panel');
-    await panel.hover('#status-tile');
+    await panel.hover('#status-tile .big');
+    await panel.waitForTimeout(700);
+    check(await panel.isHidden('#tooltip'), 'hovering a side-panel card away from its (i) shows no help');
+    await panel.hover('#status-tile .help-icon');
     await panel.waitForSelector('#tooltip.help:not([hidden])', { timeout: 3000 });
-    check(/CLIPPING \(red\)/.test(await panel.textContent('#tooltip')), 'hovering the status card shows its help in the side panel');
+    check(/CLIPPING \(red\)/.test(await panel.textContent('#tooltip')), 'hovering the (i) on the status card shows its help in the side panel');
+    check((await panel.locator('#hum-status').count()) === 0, 'side panel has no mains hum panel');
     await panel.screenshot({ path: join(OUT, 'extension-panel-help.png') });
     await panel.mouse.move(5, 5);
     await panel.screenshot({ path: join(OUT, 'extension-panel.png'), fullPage: true });
@@ -135,9 +139,8 @@ async function main() {
     console.log('Mains hum (Reference_speech_recording, 50 Hz hum at -70 dBFS):');
     const speech = wav.replace('18Oct2026-30_min_mark', 'Reference_speech_recording');
     await sw.evaluate((url) => self.streammonTestStart(url, 'Sister church service (test)'), speech);
-    await panel.waitForFunction(() => document.getElementById('hum-status-text').textContent === 'PRESENT', null, { timeout: 25000 });
-    check(true, 'side panel shows mains hum PRESENT');
-    check(/^50\.0\d Hz$/.test(await panel.textContent('#hum-freq')), `side panel hum frequency ${await panel.textContent('#hum-freq')}`);
+    await dash.waitForFunction(() => document.getElementById('hum-status-text').textContent === 'PRESENT', null, { timeout: 25000 });
+    check(/^50\.0\d Hz$/.test(await dash.textContent('#hum-freq')), `dashboard hum frequency ${await dash.textContent('#hum-freq')}`);
     await dash.waitForFunction(() => /Mains hum detected/.test(document.getElementById('log-body').textContent), null, { timeout: 5000 });
     check((await dash.textContent('#hum-status-text')) === 'PRESENT', 'dashboard hum panel PRESENT, onset logged');
     await panel.waitForFunction(() => /Mains hum/.test(document.getElementById('alerts').textContent), null, { timeout: 15000 });

@@ -115,7 +115,7 @@ A status is held for 2 s.
 
 ### Stereo by band (`src/dsp/stereobands.js`)
 
-Display only: no alert or status depends on it. Each octave band (31 Hz – 16 kHz) is filtered by two cascaded RBJ band-pass biquads, identical for L and R. Over a 1 s window it gives correlation, balance (R over L, in dB) and level.
+Each octave band (31 Hz – 16 kHz) is filtered by two cascaded RBJ band-pass biquads, identical for L and R. Over a 1 s window it gives correlation, balance (R over L, in dB) and level.
 - `StreamAnalyzer` computes it only when `onFrame` is set, so the file-analysis worker skips it. The result goes out in `frame.bands`.
 - It costs about 1% of one core.
 - `src/ui/stereo-view.js` draws it (balance across, correlation up), created by `MetersView` when `#stereo-bands` exists.
@@ -149,7 +149,7 @@ Display only: no alert or status depends on it. Each octave band (31 Hz – 16 k
   - the `#peaks` height is chosen so the peak chart matches the loudness history (which also draws the stereo correlation, on a right-hand scale).
   - After changing either column, re-measure in a browser and adjust that height.
   - Also update the size limit in the "spectrum canvases keep their size" checks in `test/e2e.mjs` and `test/e2e-extension.mjs`.
-- **Hover help:** every meter tile and panel heading carries `data-help="<key>"`. The volunteer-facing text for each key lives only in `HELP` in `src/ui/help.js`, shared by all three pages. `test/help.test.js` fails if a card has no key or a key has no text.
+- **Hover help:** every meter tile and panel heading carries `data-help="<key>"`. In the extension side panel, `setupHelp(doc, { iconOnly: true })` replaces the CSS-drawn (i) icons with real `.help-icon` elements, and help shows only while the pointer is on one; on the user's request it no longer pops up over the readings there. The volunteer-facing text for each key lives only in `HELP` in `src/ui/help.js`, shared by all three pages. `test/help.test.js` fails if a card has no key or a key has no text.
 - **Styling:**
   - The UI is dark-only.
   - Status colours (good / warning / critical) are reserved for states: the clip status, the hum status and the stereo status. They always come with a text label and an icon, and are never used for data series.
@@ -167,7 +167,7 @@ Display only: no alert or status depends on it. Each octave band (31 Hz – 16 k
   - It captures with `getUserMedia({ chromeMediaSource: 'tab' })` and reuses `AudioEngine`, passing `monitor: true` because tab capture mutes the tab.
   - It keeps history, log, CSV rows (`SessionRecorder`) and `AlertMonitor`.
   - It only sends spectrum data while a dashboard keeps sending `want-spectrum`.
-- **Views:** `panel.html` (side panel) and `dashboard.html` both run `view.js`, keyed on the same element ids as the web app.
+- **Views:** `panel.html` (side panel) and `dashboard.html` both run `view.js`, keyed on the same element ids as the web app. The side panel is deliberately compact: no hum panel (hum alerts still show), no spectrum or stereo views.
   - They talk to the offscreen document over the `BroadcastChannel` in `client.js`: `hello` → `snapshot`, then `frame` / `row` / `log` / `alerts` / `session` / `spectrum`.
   - Exports use `get-csv` / `get-json` request–reply messages.
 - **Alert settings:** stored in `localStorage` via `src/ui/settings.js` (the extension origin is shared). The offscreen document reloads them on the `storage` event.

@@ -231,4 +231,4 @@ document.querySelectorAll('.seg button').forEach((b) =>
 
 meters.reset('Waiting for audio…');
 
-setupHelp();
+setupHelp(document, { iconOnly: compact });

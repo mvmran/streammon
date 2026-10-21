@@ -43,7 +43,10 @@ export const HELP = {
 
 const SHOW_DELAY_MS = 350;
 
-export function setupHelp(doc = document) {
+// iconOnly: show the text only while the pointer is on the (i) icon, not anywhere on the
+// card (the side panel is narrow, and help popping up over the readings is distracting).
+// The CSS-drawn icons are then replaced by real elements that can be hovered.
+export function setupHelp(doc = document, { iconOnly = false } = {}) {
   const tip = doc.getElementById('tooltip');
   if (!tip) return;
   let timer = null;
@@ -54,7 +57,19 @@ export function setupHelp(doc = document) {
     if (!text) continue;
     el.setAttribute('aria-description', text);
     if (!el.hasAttribute('tabindex')) el.tabIndex = 0;
+    if (iconOnly) {
+      const icon = doc.createElement('span');
+      icon.className = 'help-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.textContent = 'i';
+      const label = el.querySelector(':scope > .label');
+      if (label) label.append(icon);
+      else if (el.classList.contains('badge')) el.after(icon);
+      else el.append(icon);
+      icon.helpFor = el;
+    }
   }
+  if (iconOnly) doc.documentElement.classList.add('help-icon-only');
 
   const show = (el) => {
     current = el;
@@ -78,24 +93,30 @@ export function setupHelp(doc = document) {
       current = null;
     }
   };
+  // The element whose help applies, and the element the pointer has to stay on.
   const target = (e) => {
-    const el = e.target.closest && e.target.closest('[data-help]');
-    return el && HELP[el.dataset.help] ? el : null;
+    if (!e.target.closest) return null;
+    if (iconOnly) {
+      const icon = e.target.closest('.help-icon');
+      return icon ? { el: icon.helpFor, area: icon } : null;
+    }
+    const el = e.target.closest('[data-help]');
+    return el && HELP[el.dataset.help] ? { el, area: el } : null;
   };
 
   doc.addEventListener('pointerover', (e) => {
-    const el = target(e);
-    if (el === current) return;
+    const t = target(e);
+    if (t && t.el === current) return;
     hide();
-    if (el) timer = setTimeout(() => show(el), SHOW_DELAY_MS);
+    if (t) timer = setTimeout(() => show(t.el), SHOW_DELAY_MS);
   });
   doc.addEventListener('pointerout', (e) => {
-    const el = target(e);
-    if (el && !el.contains(e.relatedTarget)) hide();
+    const t = target(e);
+    if (t && !t.area.contains(e.relatedTarget)) hide();
   });
   doc.addEventListener('focusin', (e) => {
-    const el = target(e);
-    if (el && el.matches(':focus-visible')) show(el);
+    const el = e.target.closest && e.target.closest('[data-help]');
+    if (el && HELP[el.dataset.help] && el.matches(':focus-visible')) show(el);
   });
   doc.addEventListener('focusout', hide);
   doc.addEventListener('keydown', (e) => e.key === 'Escape' && hide());

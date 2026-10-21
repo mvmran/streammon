@@ -32,7 +32,7 @@ WHAT IT MEASURES
 • True peak (dBTP) with 4x oversampling
 • Crest factor and a stereo status: MONO / STEREO OK / WIDE / UNBALANCED / PHASE PROBLEM
 • Stereo by band, a pan map and a correlation history, to spot phase and balance problems (in the full dashboard)
-• Mains hum detection (50 or 60 Hz): present / not detected / masked by music, level, harmonics, and how loud it would be if the speech were turned up
+• Mains hum detection (50 or 60 Hz): present / not detected / masked by music, level, harmonics, and how loud it would be if the speech were turned up (in the full dashboard; hum alerts show everywhere)
 • Spectrum, spectrogram and octave balance, with hover readings (in the full dashboard)
 
 ALERTS AND RECORDS

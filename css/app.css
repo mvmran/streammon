@@ -295,6 +295,29 @@ span[data-help]:not(.badge)::after {
   vertical-align: 1px;
 }
 .status-tile[data-help] > .label::after { color: rgba(255, 255, 255, 0.75); }
+/* Icon-only help (side panel): real icon elements replace the drawn ones, and only they show help. */
+.help-icon-only [data-help] { cursor: inherit; }
+.help-icon-only [data-help] > .label::after,
+.help-icon-only h2[data-help]::after,
+.help-icon-only span[data-help]:not(.badge)::after { content: none; }
+.help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  margin-left: 6px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  color: var(--muted);
+  font: italic 600 9px/1 Georgia, serif;
+  vertical-align: 1px;
+  cursor: help;
+  position: relative;
+}
+/* A bigger invisible target than the 13 px circle. */
+.help-icon::before { content: ''; position: absolute; inset: -6px; }
+.status-tile .help-icon { color: rgba(255, 255, 255, 0.75); }
 .tooltip.help { max-width: 320px; font-size: 0.82rem; line-height: 1.45; font-variant-numeric: normal; padding: 8px 12px; }
 
 /* Resettable meters (click the card): hint on hover / focus, brief flash when reset. */
