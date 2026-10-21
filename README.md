@@ -16,9 +16,7 @@ Everything runs locally in the browser; no audio or data leaves the computer
 
 - **Web app:** <https://mvmran.github.io/streammon/>. Open it in Chrome or Edge; nothing to install.
 - **Chrome extension:** install it from the
-  [Chrome Web Store](https://chromewebstore.google.com/detail/stream-audio-monitor/nnilldeclfcbbllfdkackambnpjkfpjd); it updates itself. (Each
-  [release](https://github.com/mvmran/streammon/releases/latest) also has the zip for an
-  unpacked install.)
+  [Chrome Web Store](https://chromewebstore.google.com/detail/stream-audio-monitor/nnilldeclfcbbllfdkackambnpjkfpjd); it updates itself.
 
 ## Running it
 
@@ -87,19 +85,6 @@ warning.
 **Install:** open [Stream Audio Monitor in the Chrome Web Store](https://chromewebstore.google.com/detail/stream-audio-monitor/nnilldeclfcbbllfdkackambnpjkfpjd),
 click **Add to Chrome**, then pin the **Stream Audio Monitor** button to the toolbar
 (puzzle-piece menu → pin). Chrome keeps it up to date.
-
-**Unpacked install** (to try a build before it reaches the store). Remove the store
-version first, or you will have two buttons; settings are not shared between the two.
-
-1. Download `streammon-extension-<version>.zip` from the
-   [latest release](https://github.com/mvmran/streammon/releases/latest), or build it with
-   `npm run build:extension` (it lands in `dist/`). Unzip it into a folder you will keep:
-   Chrome loads the extension from that folder every time.
-2. In Chrome or Edge open `chrome://extensions`, turn on **Developer mode**, click **Load
-   unpacked** and choose the unzipped folder.
-3. Pin the **Stream Audio Monitor** button to the toolbar (puzzle-piece menu → pin).
-
-To update, replace the folder and click the reload icon on the extension's card.
 
 **Use:**
 
