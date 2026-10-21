@@ -198,7 +198,6 @@ main { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 12px
 
 /* Log and detectors */
 .bottom { display: grid; grid-template-columns: 1fr; gap: 12px; }
-@media (min-width: 900px) { .bottom { grid-template-columns: 3fr 1fr; } }
 .log-actions, .file-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .log-scroll { max-height: 320px; overflow: auto; }
 table.log { width: 100%; border-collapse: collapse; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
@@ -301,7 +300,7 @@ span[data-help]:not(.badge)::after {
 
 /* Mains hum panel */
 .hum { display: grid; grid-template-columns: 1fr; gap: 12px; }
-@media (min-width: 1100px) { .hum { grid-template-columns: 3fr 2fr; } }
+@media (min-width: 1100px) { .hum { grid-template-columns: minmax(260px, 1fr) 1.5fr 1.3fr; } }
 .hum-listen { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .field.inline { flex-direction: row; align-items: center; gap: 6px; }
 .field.inline select { min-width: 0; }

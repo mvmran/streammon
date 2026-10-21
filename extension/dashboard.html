@@ -102,7 +102,18 @@
         </div>
       </section>
 
-      <section class="hum" aria-label="Mains hum">
+      <section class="hum" aria-label="Detectors and mains hum">
+        <div class="panel detectors">
+          <div class="panel-head"><h2 data-help="detectors">Detectors</h2></div>
+          <dl>
+            <dt>Dwell runs (3 s avg)</dt><dd><span id="d-dwell" class="tabular">--</span> /s <span class="muted small">clean &lt;1 · limited ~3–4 · clipped 10+</span></dd>
+            <dt>Pile-up ratio</dt><dd><span id="d-pile" class="tabular">--</span> <span class="muted small">wall ≥ 0.45</span></dd>
+            <dt>Peaks pinned (10 s)</dt><dd><span id="d-pin" class="tabular">--</span> <span class="muted small">limiter ≥ 55%</span></dd>
+            <dt>Ceiling</dt><dd><span id="d-ceil" class="tabular">--</span> dBFS</dd>
+            <dt>Full-scale runs</dt><dd><span id="d-fs" class="tabular">--</span> <span class="muted small">this second</span></dd>
+          </dl>
+          <p class="muted small">This is the audio viewers hear, after YouTube: 5–30 s behind the desk.</p>
+        </div>
         <div class="panel hum-panel">
           <div class="panel-head">
             <h2 data-help="hum">Mains hum <span id="hum-mains" class="muted small">50 Hz mains</span></h2>
@@ -159,17 +170,6 @@
             </table>
             <p id="log-empty" class="muted small empty">No events yet.</p>
           </div>
-        </div>
-        <div class="panel detectors">
-          <div class="panel-head"><h2 data-help="detectors">Detectors</h2></div>
-          <dl>
-            <dt>Dwell runs (3 s avg)</dt><dd><span id="d-dwell" class="tabular">--</span> /s <span class="muted small">clean &lt;1 · limited ~3–4 · clipped 10+</span></dd>
-            <dt>Pile-up ratio</dt><dd><span id="d-pile" class="tabular">--</span> <span class="muted small">wall ≥ 0.45</span></dd>
-            <dt>Peaks pinned (10 s)</dt><dd><span id="d-pin" class="tabular">--</span> <span class="muted small">limiter ≥ 55%</span></dd>
-            <dt>Ceiling</dt><dd><span id="d-ceil" class="tabular">--</span> dBFS</dd>
-            <dt>Full-scale runs</dt><dd><span id="d-fs" class="tabular">--</span> <span class="muted small">this second</span></dd>
-          </dl>
-          <p class="muted small">This is the audio viewers hear, after YouTube: 5–30 s behind the desk.</p>
         </div>
       </section>
     </main>
