@@ -12,7 +12,7 @@ import { EventLog } from './log.js';
 import { SessionRecorder } from './session.js';
 import { setupSettings } from './settings.js';
 import { setupHelp } from './help.js';
-import { MetersView, renderAlertBanners, createHistoryChart, createCorrelationChart, createPeakChart, showRecent, timeFormatter, bindMeterResets } from './meters.js';
+import { MetersView, renderAlertBanners, createHistoryChart, createPeakChart, showRecent, timeFormatter, bindMeterResets } from './meters.js';
 import { HumView } from './hum-view.js';
 import { fmtDb, fmtDuration, fmtClock, fmtStamp, fileStamp, download } from './format.js';
 
@@ -97,7 +97,6 @@ let panL = null, panR = null; // reused spectrum buffers
 const meters = new MetersView(() => state.alertCfg);
 const xFormat = timeFormatter(() => state);
 const historyChart = createHistoryChart($('history'), xFormat);
-const corrChart = createCorrelationChart($('corr-history'), xFormat);
 const peakChart = createPeakChart($('peaks'), xFormat, () => state.alertCfg);
 const humView = new HumView(() => state.alertCfg);
 
@@ -171,7 +170,7 @@ function resetReadouts() {
 }
 
 function redrawCharts() {
-  showRecent([historyChart, corrChart, peakChart], state.history, state.historyRange);
+  showRecent([historyChart, peakChart], state.history, state.historyRange);
 }
 
 let lastTick = performance.now();

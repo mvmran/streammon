@@ -8,7 +8,8 @@ const STATUS_FAINT = new Set(['CLEAN']); // drawn at reduced opacity: the normal
 const X_STEPS = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
 
 export class TimeChart {
-  // opts: { yMin, yMax, yStep, series: [{ key, label, colour, format(v) }], band: { from, to, label },
+  // opts: { yMin, yMax, yStep, series: [{ key, label, colour, format(v), axis: 'right' }],
+  //         right: { min, max, step, unit } (a second scale on the right for axis: 'right' series), band: { from, to, label },
   //         refs: (chart) => [{ y, label, dash }], statusStrip, statusKey, statusColours,
   //         statusFaint, xFormat(t), onClick(t), unit }
   constructor(canvas, opts) {
@@ -76,7 +77,7 @@ export class TimeChart {
 
   get plot() {
     const strip = this.opts.statusStrip ? 10 : 0;
-    return { l: 46, r: this.w - 12, t: 8, b: this.h - 22 - strip, strip };
+    return { l: 46, r: this.w - (this.opts.right ? 42 : 12), t: 8, b: this.h - 22 - strip, strip };
   }
 
   x(t) {
@@ -89,6 +90,15 @@ export class TimeChart {
     const { yMin, yMax } = this.opts;
     const c = Math.max(yMin, Math.min(yMax, v));
     return p.b - ((c - yMin) / (yMax - yMin)) * (p.b - p.t);
+  }
+
+  // y for a series value, on the right-hand scale for axis: 'right' series.
+  ys(s, v) {
+    const r = this.opts.right;
+    if (s.axis !== 'right' || !r) return this.y(v);
+    const p = this.plot;
+    const c = Math.max(r.min, Math.min(r.max, v));
+    return p.b - ((c - r.min) / (r.max - r.min)) * (p.b - p.t);
   }
 
   tAt(e) {
@@ -171,6 +181,22 @@ export class TimeChart {
     ctx.textAlign = 'center';
     ctx.fillText(o.unit, 0, 0);
     ctx.restore();
+    // Right-hand scale: labels only, placed on the left scale's gridlines when the steps line up.
+    if (o.right) {
+      const r = o.right;
+      ctx.textAlign = 'left';
+      for (let v = r.min; v <= r.max + 1e-9; v += r.step) {
+        const y = p.b - ((v - r.min) / (r.max - r.min)) * (p.b - p.t);
+        const text = (v > 0 ? `+${v}` : String(Math.round(v * 100) / 100)).replace('-', '−');
+        ctx.fillText(text, p.r + 6, Math.round(y) + 0.5);
+      }
+      ctx.save();
+      ctx.translate(this.w - 6, (p.t + p.b) / 2);
+      ctx.rotate(Math.PI / 2);
+      ctx.textAlign = 'center';
+      ctx.fillText(r.unit, 0, 0);
+      ctx.restore();
+    }
 
     // X ticks.
     const span = this.xEnd - this.xStart;
@@ -252,11 +278,11 @@ export class TimeChart {
       let pen = false;
       for (let i = Math.max(0, first - 1); i < rows.length; i++) {
         const v = rows[i][s.key];
-        if (!Number.isFinite(v) || v < o.yMin - 20) {
+        if (!Number.isFinite(v) || (s.axis !== 'right' && v < o.yMin - 20)) {
           pen = false;
           continue;
         }
-        const x = this.x(rows[i].t), y = this.y(v);
+        const x = this.x(rows[i].t), y = this.ys(s, v);
         if (pen) ctx.lineTo(x, y);
         else ctx.moveTo(x, y);
         pen = true;
@@ -293,7 +319,7 @@ export class TimeChart {
         ctx.strokeStyle = css('--surface');
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(x, this.y(v), 4.5, 0, Math.PI * 2);
+        ctx.arc(x, this.ys(s, v), 4.5, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
       }

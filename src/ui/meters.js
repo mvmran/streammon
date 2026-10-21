@@ -178,22 +178,18 @@ export function timeFormatter(getState) {
   };
 }
 
+// The full version also draws the stereo correlation, on its own scale on the right
+// (−1…+1, whose steps land on the LUFS gridlines).
 export function createHistoryChart(canvas, xFormat, { compact = false } = {}) {
+  const series = [{ key: 'shortTerm', label: 'Short-term LUFS', colour: '--series-1' }];
+  if (!compact) series.push({ key: 'correlation', label: 'Correlation (right scale)', colour: '--series-2', axis: 'right', format: (v) => v.toFixed(2) });
   return new TimeChart(canvas, {
     yMin: -40, yMax: 0, yStep: 10, unit: compact ? 'LUFS' : 'LUFS / dBFS',
-    series: [{ key: 'shortTerm', label: 'Short-term LUFS', colour: '--series-1' }],
+    right: compact ? null : { min: -1, max: 1, step: 0.5, unit: 'correlation' },
+    series,
     band: { from: -16, to: -12, label: compact ? 'target' : 'target −16 to −12 LUFS' },
     refs: (c) => [{ y: -10, label: '−10 LUFS', colour: '--serious' }, ...ceilingRef(c.rows)],
     statusStrip: true,
-    xFormat,
-  });
-}
-
-// Stereo correlation strip under the loudness history, on the same time axis.
-export function createCorrelationChart(canvas, xFormat) {
-  return new TimeChart(canvas, {
-    yMin: -1, yMax: 1, yStep: 1, unit: 'corr',
-    series: [{ key: 'correlation', label: 'Correlation', colour: '--series-2', format: (v) => v.toFixed(2) }],
     xFormat,
   });
 }

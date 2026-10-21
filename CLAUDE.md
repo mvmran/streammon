@@ -146,7 +146,7 @@ Display only: no alert or status depends on it. Each octave band (31 Hz – 16 k
   - It scrolls one row per UI tick (10/s), so the history length is set by the canvas height.
 - **Column heights are balanced by hand.** In `index.html` and `extension/dashboard.html`:
   - the `#sgram` height attribute is chosen so the spectrum panel ends level with the right-hand column (Stereo by band + Pan map);
-  - the `#peaks` height is chosen so the peak chart matches the loudness history plus its correlation strip.
+  - the `#peaks` height is chosen so the peak chart matches the loudness history (which also draws the stereo correlation, on a right-hand scale).
   - After changing either column, re-measure in a browser and adjust that height.
   - Also update the size limit in the "spectrum canvases keep their size" checks in `test/e2e.mjs` and `test/e2e-extension.mjs`.
 - **Hover help:** every meter tile and panel heading carries `data-help="<key>"`. The volunteer-facing text for each key lives only in `HELP` in `src/ui/help.js`, shared by all three pages. `test/help.test.js` fails if a card has no key or a key has no text.
