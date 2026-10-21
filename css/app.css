@@ -194,7 +194,7 @@ main { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 12px
 .stereo-legend .zone { display: inline-block; width: 16px; height: 8px; border: 1px dashed rgba(255, 255, 255, 0.45); border-top: none; border-radius: 0 0 8px 8px; background: rgba(255, 255, 255, 0.05); }
 .stereo-note { margin: 6px 0 0; color: var(--text-2); }
 
-.balance { display: grid; grid-template-columns: 4.2em 1fr 3.6em; gap: 9px 8px; align-items: center; font-size: 0.85rem; }
+.balance { display: grid; grid-template-columns: 4.2em 1fr 3.6em; gap: 2px 8px; align-items: center; font-size: 0.85rem; }
 .balance .f { color: var(--text-2); text-align: right; }
 .balance .v { text-align: right; font-variant-numeric: tabular-nums; }
 .balance .track { position: relative; height: 12px; }
@@ -312,9 +312,7 @@ span[data-help]:not(.badge)::after {
 .field.inline { flex-direction: row; align-items: center; gap: 6px; }
 .field.inline select { min-width: 0; }
 .hum-body { display: grid; grid-template-columns: 1fr; gap: 12px; }
-/* Side by side only when the hum panel itself is wide enough; otherwise status above the readings. */
-.hum-panel { container-type: inline-size; }
-@container (min-width: 560px) { .hum-body { grid-template-columns: minmax(200px, 1fr) 1.4fr; } }
+@media (min-width: 560px) { .hum-body { grid-template-columns: minmax(200px, 1fr) 1.4fr; } }
 .hum-status { align-self: start; border-radius: var(--radius); padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); container-type: inline-size; }
 .hum-status .big { font-size: clamp(1.4rem, 13cqi, 2.4rem); font-weight: 650; display: flex; gap: 10px; align-items: center; white-space: nowrap; }
 .hum-status .sub { color: var(--text-2); font-size: 0.82rem; margin-top: 4px; }
