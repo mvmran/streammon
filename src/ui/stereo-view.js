@@ -13,7 +13,7 @@ const HIDE_BELOW = 50; // dB below the loudest band: too quiet to place reliably
 // Below this a band is mostly the source's own noise (e.g. two mic capsules' independent
 // hiss reads as near-zero or negative correlation): drawn as an outline, not judged.
 const JUDGE_DB = -70;
-const R_MIN = 1.5, R_MAX = 10; // dot radius (CSS px); hover still finds small dots within 12 px
+const R_MIN = 1.2, R_MAX = 7; // dot radius (CSS px); hover still finds small dots within 12 px
 const BAL_TICK = 6; // dB, gridlines either side of centre
 
 const labelHz = (f) => (f >= 1000 ? `${Math.round(f / 100) / 10}k` : String(Math.round(f)));
@@ -52,8 +52,7 @@ export class StereoBandsView {
     el.innerHTML =
       '<span>31 Hz</span>' +
       SHADES.map((c) => `<span class="sw" style="background:${c}"></span>`).join('') +
-      '<span>16k</span><span class="sep">dot size = band level</span>' +
-      `<span class="sep"><span class="ring"></span> below ${fmtDb(JUDGE_DB, 0)} dBFS, not judged</span>`;
+      '<span>16k</span><span class="sep">dot size = band level</span>';
     this.canvas.parentElement.after(el);
   }
 
