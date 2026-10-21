@@ -30,13 +30,13 @@ WHAT IT MEASURES
 • Limiting: peaks pinned at one level
 • Loudness to EBU R128 / ITU-R BS.1770-4: short-term, momentary, integrated (LUFS) and loudness range (LRA)
 • True peak (dBTP) with 4x oversampling
-• Crest factor, stereo correlation and a MONO indicator
-• Stereo by band: correlation and left/right balance for each octave, to spot phase and balance problems (in the full dashboard)
+• Crest factor and a stereo status: MONO / STEREO OK / WIDE / UNBALANCED / PHASE PROBLEM
+• Stereo by band, a pan map and a correlation history, to spot phase and balance problems (in the full dashboard)
 • Mains hum detection (50 or 60 Hz): present / not detected / masked by music, level, harmonics, and how loud it would be if the speech were turned up
 • Spectrum, spectrogram and octave balance, with hover readings (in the full dashboard)
 
 ALERTS AND RECORDS
-• Banner and Chrome notification alerts for clipping, true peak above -1 dBTP, sustained loudness above -10 LUFS and integrated loudness far from -14 LUFS (all adjustable; optional beep, off by default)
+• Banner and Chrome notification alerts for clipping, true peak above -1 dBTP, sustained loudness above -10 LUFS, integrated loudness far from -14 LUFS, mains hum, and stereo phase or balance problems (all adjustable; optional beep, off by default)
 • Timestamped event log
 • Export the session as CSV (one row per second) or a JSON summary
 • Hover the ⓘ on any card for a plain-language explanation

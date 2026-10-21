@@ -143,11 +143,18 @@ The text under the status says how it was detected:
   **−1 dBTP** so YouTube's encoder has headroom.
 - **Crest factor**: peak minus average level. Natural speech/music is typically 12–20 dB;
   heavily limited audio is around 10–11 dB and clipped audio often under 9 dB.
-- **MONO badge**: shown when left and right are identical (correlation > 0.999). Our
-  feeds are currently mono because of a configuration problem; the aim is full stereo.
+- **Stereo status** (the Stereo card): MONO (left and right identical), STEREO OK, WIDE,
+  UNBALANCED (whole mix more than 3 dB louder on one side) or PHASE PROBLEM (a loud band
+  out of phase, which cancels on phones and mono speakers). A phase problem for 5 s and
+  imbalance for 15 s raise alerts; an alert for a mono feed can be switched on in
+  *Alerts & settings*. Our feeds are currently mono because of a configuration problem;
+  the aim is full stereo.
+- **Correlation strip** under the loudness history: stereo correlation over time.
 - **Stereo by band**: one dot per octave, placed by balance (left/right) and correlation
   (+1 mono at the top, below 0 out of phase). The dashed half-oval is roughly where a
   healthy stereo mix sits. A band below 0 cancels on mono speakers and phones.
+- **Pan map**: where the sound sits left to right at each frequency, brighter for louder.
+  It shows what is panned where, but not phase (Stereo by band does).
 - **Spectrum, spectrogram and octave balance**: hover the spectrum bars or the spectrogram
   for readings. The darker bars are the octave-balance frequencies.
 - **Peak per second**: a flat line of peaks at one level is the visual signature of
