@@ -7,11 +7,12 @@ import { isolateHum } from '../dsp/hum-isolate.js';
 import { summaryJson } from '../dsp/report.js';
 import { TimeChart } from './charts.js';
 import { SpectrumView } from './spectrum.js';
+import { PanMapView } from './pan-map.js';
 import { EventLog } from './log.js';
 import { SessionRecorder } from './session.js';
 import { setupSettings } from './settings.js';
 import { setupHelp } from './help.js';
-import { MetersView, renderAlertBanners, createHistoryChart, createPeakChart, showRecent, timeFormatter, bindMeterResets } from './meters.js';
+import { MetersView, renderAlertBanners, createHistoryChart, createCorrelationChart, createPeakChart, showRecent, timeFormatter, bindMeterResets } from './meters.js';
 import { HumView } from './hum-view.js';
 import { fmtDb, fmtDuration, fmtClock, fmtStamp, fileStamp, download } from './format.js';
 
@@ -90,10 +91,13 @@ engine.setHumOptions(humOptionsFrom(state.alertCfg));
 const log = new EventLog($('log-body'), $('log-empty'), { onSeek: (t) => state.mode === 'file' && playFrom(t) });
 const recorder = new SessionRecorder();
 const spectrum = new SpectrumView({ bands: $('bands'), sgram: $('sgram'), balance: $('balance') });
+const panMap = new PanMapView($('pan-map'));
+let panL = null, panR = null; // reused spectrum buffers
 
 const meters = new MetersView(() => state.alertCfg);
 const xFormat = timeFormatter(() => state);
 const historyChart = createHistoryChart($('history'), xFormat);
+const corrChart = createCorrelationChart($('corr-history'), xFormat);
 const peakChart = createPeakChart($('peaks'), xFormat, () => state.alertCfg);
 const humView = new HumView(() => state.alertCfg);
 
@@ -167,7 +171,7 @@ function resetReadouts() {
 }
 
 function redrawCharts() {
-  showRecent([historyChart, peakChart], state.history, state.historyRange);
+  showRecent([historyChart, corrChart, peakChart], state.history, state.historyRange);
 }
 
 let lastTick = performance.now();
@@ -182,6 +186,13 @@ function tick(now) {
   }
   const active = state.running || state.playing;
   if (active && engine.analyser) spectrum.update(engine.analyser, engine.ctx.sampleRate, dt);
+  if (active && engine.analyserL) {
+    const n = engine.analyserL.frequencyBinCount;
+    if (!panL || panL.length !== n) [panL, panR] = [new Float32Array(n), new Float32Array(n)];
+    engine.analyserL.getFloatFrequencyData(panL);
+    engine.analyserR.getFloatFrequencyData(panR);
+    panMap.update(panL, panR, engine.ctx.sampleRate, dt);
+  }
   if (state.playing && timeline) {
     const pos = engine.position;
     if (pos !== null) {
@@ -286,6 +297,7 @@ function beginSession() {
   recorder.clear();
   log.clear();
   spectrum.clear();
+  panMap.clear();
   humView.reset();
   renderAlerts();
   resetReadouts();
@@ -452,6 +464,7 @@ async function playFrom(t) {
   state.history = [];
   state.lastFrame = null;
   spectrum.clear();
+  panMap.clear();
   resetReadouts();
   redrawCharts();
   await engine.startFile(f.buffer, t);

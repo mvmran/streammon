@@ -2,8 +2,10 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { StereoBands } from '../src/dsp/stereobands.js';
+import { StereoBands, StereoStatus, MONO, STEREO_OK, WIDE, UNBALANCED, PHASE_PROBLEM } from '../src/dsp/stereobands.js';
 import { StreamAnalyzer } from '../src/dsp/analyzer.js';
+import { AlertMonitor } from '../src/dsp/alerts.js';
+import { csvHeader, csvRow } from '../src/dsp/report.js';
 
 const SR = 48000;
 
@@ -79,4 +81,74 @@ test('the analyzer reports bands with each frame, and skips them without onFrame
   assert.equal(frames.at(-1).bands.length, 10);
   assert.ok(frames.at(-1).bands[7].correlation < -0.9, '4 kHz out of phase');
   assert.equal(new StreamAnalyzer(SR, {}).bandStereo, null);
+});
+
+// Ten octave bands with the given correlations (one value, or one per band) at -30 dBFS.
+const bands = (corr, { balanceDb = 0, levelDb = -30 } = {}) =>
+  [31.25, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 16000].map((fc, i) => ({
+    fc,
+    correlation: Array.isArray(corr) ? corr[i] : corr,
+    balanceDb,
+    levelDb: Array.isArray(levelDb) ? levelDb[i] : levelDb,
+  }));
+
+test('stereo status words', () => {
+  const s = () => new StereoStatus();
+  assert.equal(s().update(bands(1), true, 0).status, MONO);
+  assert.equal(s().update(bands([1, 1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.5, 0.4, 0.3]), false, 0.5).status, STEREO_OK);
+  assert.equal(s().update(bands([1, 0.9, 0.2, 0.1, 0.1, 0.1, 0, 0.1, 0, 0]), false, 0).status, WIDE);
+  const unb = s().update(bands(0.8), false, -4.2);
+  assert.equal(unb.status, UNBALANCED);
+  assert.match(unb.detail, /4\.2 dB louder on the left/);
+  const ph = s().update(bands([1, 1, 0.9, 0.8, 0.7, 0.6, -0.6, -0.5, 0.4, 0.3]), false, 0);
+  assert.equal(ph.status, PHASE_PROBLEM);
+  assert.match(ph.detail, /^2k, 4k out of phase/);
+  // Quiet bands (mic hiss) are not judged.
+  assert.equal(s().update(bands(-0.5, { levelDb: -85 }), false, 0).status, null);
+  // A negative band 25 dB below the loudest is not a phase problem.
+  const lv = [-20, -20, -20, -20, -20, -20, -45, -20, -20, -20];
+  assert.equal(s().update(bands([1, 1, 0.9, 0.8, 0.7, 0.6, -0.6, 0.5, 0.4, 0.3], { levelDb: lv }), false, 0).status, STEREO_OK);
+});
+
+test('a worse stereo status is held for 3 s', () => {
+  const st = new StereoStatus();
+  const ok = bands(0.8), bad = bands([1, 1, 0.9, 0.8, 0.7, 0.6, -0.6, 0.5, 0.4, 0.3]);
+  assert.equal(st.update(bad, false, 0).status, PHASE_PROBLEM);
+  for (let i = 0; i < 29; i++) assert.equal(st.update(ok, false, 0).status, PHASE_PROBLEM); // 30 frames in all
+  assert.equal(st.update(ok, false, 0).status, STEREO_OK);
+  // MONO is shown at once.
+  st.update(bad, false, 0);
+  assert.equal(st.update(ok, true, 0).status, MONO);
+});
+
+test('stereo alerts: phase after 5 s, imbalance after 15 s, mono only when asked', () => {
+  const row = (t, stereoStatus, stereoDetail = 'x') => ({ t, status: 'CLEAN', stereoStatus, stereoDetail, shortTerm: -20, truePeakDb: -6, integrated: -14 });
+  const m = new AlertMonitor();
+  let r;
+  for (let t = 1; t <= 5; t++) r = m.update(row(t, PHASE_PROBLEM, '2k out of phase: cancels in mono'));
+  assert.deepEqual(r.raised.map((a) => a.id), ['stereoPhase']);
+  const u = new AlertMonitor();
+  for (let t = 1; t <= 14; t++) assert.equal(u.update(row(t, UNBALANCED)).raised.length, 0);
+  assert.deepEqual(u.update(row(15, UNBALANCED)).raised.map((a) => a.id), ['stereoBalance']);
+  const mono = new AlertMonitor();
+  for (let t = 1; t <= 30; t++) assert.equal(mono.update(row(t, MONO)).raised.length, 0);
+  const asked = new AlertMonitor({ stereo: { mono: true } });
+  for (let t = 1; t <= 9; t++) asked.update(row(t, MONO));
+  assert.deepEqual(asked.update(row(10, MONO)).raised.map((a) => a.id), ['stereoMono']);
+});
+
+test('frames and rows carry the stereo status; the CSV has it', () => {
+  const frames = [], rows = [];
+  const an = new StreamAnalyzer(SR, { onFrame: (f) => frames.push(f), onSecond: (r) => rows.push(r) });
+  const [L, R] = scene(2);
+  an.process(L, R);
+  assert.equal(frames.at(-1).stereoStatus, PHASE_PROBLEM, frames.at(-1).stereoDetail);
+  assert.equal(rows.at(-1).stereoStatus, PHASE_PROBLEM);
+  assert.ok(csvHeader().includes('stereo_status'));
+  assert.ok(csvRow(rows.at(-1)).includes('PHASE PROBLEM'));
+  // Identical channels read MONO even in the file worker, which skips the band filters.
+  const fileRows = [];
+  const fa = new StreamAnalyzer(SR, { onSecond: (r) => fileRows.push(r) });
+  fa.process(L, L);
+  assert.equal(fileRows.at(-1).stereoStatus, MONO);
 });

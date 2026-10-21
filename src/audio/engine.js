@@ -42,6 +42,13 @@ export class AudioEngine {
     this.input = new GainNode(this.ctx, { gain: 1, channelCount: 2, channelCountMode: 'explicit' });
     this.input.connect(this.node);
     this.input.connect(this.analyser);
+    // Left and right spectra for the pan map (display only).
+    this.splitter = new ChannelSplitterNode(this.ctx, { numberOfOutputs: 2 });
+    this.analyserL = new AnalyserNode(this.ctx, { fftSize: 8192, smoothingTimeConstant: 0.5, minDecibels: -110, maxDecibels: 0 });
+    this.analyserR = new AnalyserNode(this.ctx, { fftSize: 8192, smoothingTimeConstant: 0.5, minDecibels: -110, maxDecibels: 0 });
+    this.input.connect(this.splitter);
+    this.splitter.connect(this.analyserL, 0);
+    this.splitter.connect(this.analyserR, 1);
     if (this.ctx.state === 'suspended') await this.ctx.resume();
   }
 

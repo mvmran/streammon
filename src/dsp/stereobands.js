@@ -1,12 +1,30 @@
 // Stereo image per octave band: L/R correlation, balance and level, over a sliding
 // window of 100 ms frames. Each band is a pair of cascaded RBJ band-pass biquads
 // (one-octave bandwidth), identical for L and R so correlation and balance are exact for
-// whatever the filter passes. Display only: no alert or status depends on it.
+// whatever the filter passes. StereoStatus turns the bands into one word (and the stereo
+// alerts in alerts.js use it).
 
 import { OCTAVE_CENTRES } from './bands.js';
 
 const Q = Math.SQRT2; // one-octave bandwidth
 const SILENT_DB = -90; // bands quieter than this report no correlation or balance
+
+export const MONO = 'MONO';
+export const STEREO_OK = 'STEREO OK';
+export const WIDE = 'WIDE';
+export const UNBALANCED = 'UNBALANCED';
+export const PHASE_PROBLEM = 'PHASE PROBLEM';
+
+// Rules for the one-word stereo status (rules of thumb; retune on a real stereo stream).
+export const STEREO_RULES = {
+  judgeDb: -70, // bands below this are mostly the source's own noise: not judged
+  judgeRangeDb: 30, // and bands more than this below the loudest band
+  phaseCorr: -0.3, // a judged band below this correlation...
+  phaseRangeDb: 20, // ...within this of the loudest band is a phase problem
+  unbalancedDb: 3, // whole-mix level difference between the sides
+  wideMedianCorr: 0.25, // median correlation of the judged bands below this is very wide
+  holdFrames: 30, // a worse status is held for 3 s so the word doesn't flicker
+};
 
 function bandpass(fc, sampleRate) {
   const w = (2 * Math.PI * fc) / sampleRate;
@@ -100,5 +118,57 @@ export class StereoBands {
       if (!(levelDb > SILENT_DB) || ll <= 0 || rr <= 0) return { fc, correlation: null, balanceDb: null, levelDb };
       return { fc, correlation: Math.max(-1, Math.min(1, lr / Math.sqrt(ll * rr))), balanceDb: 10 * Math.log10(rr / ll), levelDb };
     });
+  }
+}
+
+const SEVERITY = { [STEREO_OK]: 0, [WIDE]: 1, [UNBALANCED]: 2, [PHASE_PROBLEM]: 3 };
+const labelHz = (f) => (f >= 1000 ? `${Math.round(f / 100) / 10}k` : String(Math.round(f)));
+
+// One word for volunteers, from the per-band readings (StereoBands.current), whether the
+// channels are identical, and the whole-mix balance. Call once per 100 ms frame.
+export class StereoStatus {
+  constructor(rules = STEREO_RULES) {
+    this.rules = rules;
+    this.reset();
+  }
+
+  reset() {
+    this.held = null; // { status, detail, until }
+    this.frame = 0;
+  }
+
+  // Returns { status, detail }; status is null when everything is too quiet to judge.
+  update(bands, mono, balanceDb) {
+    this.frame++;
+    if (mono) {
+      this.held = null;
+      return { status: MONO, detail: 'Left and right identical' };
+    }
+    const now = this.judge(bands, balanceDb);
+    if (!now.status) {
+      this.held = null;
+      return now;
+    }
+    const h = this.held;
+    if (h && this.frame < h.until && SEVERITY[now.status] < SEVERITY[h.status]) return { status: h.status, detail: h.detail };
+    this.held = { ...now, until: this.frame + this.rules.holdFrames };
+    return now;
+  }
+
+  judge(bands, balanceDb) {
+    const r = this.rules;
+    const valid = bands.filter((b) => b.correlation !== null && b.levelDb >= r.judgeDb);
+    if (!valid.length) return { status: null, detail: 'Too quiet to judge' };
+    const top = Math.max(...valid.map((b) => b.levelDb));
+    const judged = valid.filter((b) => b.levelDb >= top - r.judgeRangeDb);
+    const flipped = judged.filter((b) => b.correlation < r.phaseCorr && b.levelDb >= top - r.phaseRangeDb);
+    if (flipped.length) return { status: PHASE_PROBLEM, detail: `${flipped.map((b) => labelHz(b.fc)).join(', ')} out of phase: cancels in mono` };
+    if (balanceDb !== null && Math.abs(balanceDb) > r.unbalancedDb) {
+      return { status: UNBALANCED, detail: `Mix ${Math.abs(balanceDb).toFixed(1)} dB louder on the ${balanceDb < 0 ? 'left' : 'right'}` };
+    }
+    const corr = judged.map((b) => b.correlation).sort((a, b) => a - b);
+    const median = corr.length % 2 ? corr[(corr.length - 1) / 2] : (corr[corr.length / 2 - 1] + corr[corr.length / 2]) / 2;
+    if (median < r.wideMedianCorr) return { status: WIDE, detail: `Most bands near 0 correlation (median ${median.toFixed(2)})` };
+    return { status: STEREO_OK, detail: 'Balanced, positive correlation' };
   }
 }

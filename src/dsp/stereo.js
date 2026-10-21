@@ -50,6 +50,16 @@ export class StereoMeter {
     return stereoFromSums(a, b, c);
   }
 
+  // Level difference over the window, R over L in dB (null when either side is silent).
+  get balanceDb() {
+    let a = 0, b = 0;
+    for (let i = 0; i < this.ring.length; i += 3) {
+      a += this.ring[i];
+      b += this.ring[i + 1];
+    }
+    return a > 0 && b > 0 ? 10 * Math.log10(b / a) : null;
+  }
+
   get session() {
     return stereoFromSums(...this.total);
   }

@@ -123,6 +123,17 @@ Display only: no alert or status depends on it. Each octave band (31 Hz – 16 k
 - Bands below −70 dBFS (`JUDGE_DB`) are drawn as outlines and left out of the summary line. Without this, a quiet room reads as wide or out of phase, because two mic capsules hiss independently.
 - The dashed "healthy mix" zone (±3 dB balance, down to correlation +0.2: `ZONE_BAL_DB` / `ZONE_CORR`) is a rule of thumb. Retune it against the real stereo stream once that works; the feed is currently mono by mistake.
 
+**Stereo status.** `StereoStatus` (same file) turns the bands into one word: MONO / STEREO OK / WIDE / UNBALANCED / PHASE PROBLEM.
+- The thresholds are in `STEREO_RULES`, rules of thumb like the zone.
+- A worse word is held for 3 s.
+- It goes out as `frame.stereoStatus` / `stereoDetail` and in rows, plus the CSV columns `stereo_status` and `balance_db`.
+- It drives the Stereo card's badge and the alerts `stereoPhase` (5 s), `stereoBalance` (15 s) and `stereoMono` (opt-in), set in the alert config's `stereo` section.
+- File-analysis rows have only MONO or nothing, because the worker skips the band filters (they would slow analysis by about two-thirds).
+
+**Pan map.** `src/ui/pan-map.js` places each FFT bin of separate L and R `AnalyserNode` spectra by (R² − L²)/(R² + L²) in ⅓-octave rows, averaged over about 1 s.
+- `engine.analyserL` / `analyserR` sit behind a `ChannelSplitterNode`.
+- In the extension, the `spectrum` message also carries `left` and `right`.
+
 ### Browser side
 
 - **`src/audio/engine.js`** builds the graph: source → input gain → worklet (muted output to the destination, which keeps it pulled) plus an AnalyserNode. The AnalyserNode is for the spectrum display only; all measurements come from raw samples.
@@ -133,13 +144,15 @@ Display only: no alert or status depends on it. Each octave band (31 Hz – 16 k
   - The ⅓-octave bars and the vertical spectrogram under them share one log frequency axis (the outer edges of the first and last band) and the same plot margins, so each bar sits over its own stretch of the spectrogram.
   - The spectrogram keeps one byte per pixel (the colour index) plus each row's arrival time, which is what its hover reads.
   - It scrolls one row per UI tick (10/s), so the history length is set by the canvas height.
-- **Column heights are balanced by hand.** The `#sgram` height attribute in `index.html` and `extension/dashboard.html` is chosen so the spectrum panel ends level with the right-hand column (Stereo by band + Octave balance).
+- **Column heights are balanced by hand.** In `index.html` and `extension/dashboard.html`:
+  - the `#sgram` height attribute is chosen so the spectrum panel ends level with the right-hand column (Stereo by band + Pan map);
+  - the `#peaks` height is chosen so the peak chart matches the loudness history plus its correlation strip.
   - After changing either column, re-measure in a browser and adjust that height.
   - Also update the size limit in the "spectrum canvases keep their size" checks in `test/e2e.mjs` and `test/e2e-extension.mjs`.
 - **Hover help:** every meter tile and panel heading carries `data-help="<key>"`. The volunteer-facing text for each key lives only in `HELP` in `src/ui/help.js`, shared by all three pages. `test/help.test.js` fails if a card has no key or a key has no text.
 - **Styling:**
   - The UI is dark-only.
-  - Status colours (good / warning / critical) are reserved for CLEAN / LIMITED / CLIPPING and always come with a text label.
+  - Status colours (good / warning / critical) are reserved for states: the clip status, the hum status and the stereo status. They always come with a text label and an icon, and are never used for data series.
   - The status tile is styled through `data-status`.
   - `css/app.css` has `[hidden] { display: none !important; }`, because component `display` rules would otherwise override the `hidden` attribute.
 

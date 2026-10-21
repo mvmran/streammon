@@ -14,7 +14,7 @@ import { LoudnessMeter } from './loudness.js';
 import { TruePeakChannel } from './truepeak.js';
 import { ClipDetector, CLEAN, LIMITED, CLIPPING } from './clipdetect.js';
 import { StereoMeter } from './stereo.js';
-import { StereoBands } from './stereobands.js';
+import { StereoBands, StereoStatus, MONO } from './stereobands.js';
 import { CrestMeter, toDb } from './crest.js';
 import { HumDetector, PRESENT as HUM_PRESENT, NOT_DETECTED as HUM_NOT_DETECTED, MASKED as HUM_MASKED } from './hum.js';
 
@@ -38,7 +38,10 @@ export class StreamAnalyzer {
     this.tp = [new TruePeakChannel(), new TruePeakChannel()];
     this.clip = new ClipDetector(sampleRate, clipOptions);
     this.stereo = new StereoMeter(10); // 1 s
-    this.bandStereo = onFrame ? new StereoBands(sampleRate, 10) : null; // display only
+    // Per-band stereo and the one-word stereo status: only computed when frames are
+    // displayed (live and playback), not in the faster-than-real-time file analysis.
+    this.bandStereo = onFrame ? new StereoBands(sampleRate, 10) : null;
+    this.stereoStatus = onFrame ? new StereoStatus() : null;
     this.crest = new CrestMeter(30); // 3 s
     this.reset();
     this.emitHumConfig(); // invalid settings fall back with a logged warning
@@ -50,6 +53,8 @@ export class StreamAnalyzer {
     this.clip.reset();
     this.stereo.reset();
     if (this.bandStereo) this.bandStereo.reset();
+    if (this.stereoStatus) this.stereoStatus.reset();
+    this.lastStereo = null;
     this.crest.reset();
     this.hum.reset();
     this.lastHum = null;
@@ -132,6 +137,8 @@ export class StreamAnalyzer {
 
     if (this.onFrame) {
       const stereo = this.stereo.current;
+      const bands = this.bandStereo.current;
+      this.lastStereo = this.stereoStatus.update(bands, stereo.mono, this.stereo.balanceDb);
       this.onFrame({
         t: this.elapsed,
         momentary: m,
@@ -143,7 +150,9 @@ export class StreamAnalyzer {
         correlation: stereo.correlation,
         sideMidDb: stereo.sideMidDb,
         mono: stereo.mono,
-        bands: this.bandStereo.current,
+        bands,
+        stereoStatus: this.lastStereo.status,
+        stereoDetail: this.lastStereo.detail,
         status: this.status,
       });
     }
@@ -180,6 +189,9 @@ export class StreamAnalyzer {
       correlation: stereo.correlation,
       sideMidDb: stereo.sideMidDb,
       mono: stereo.mono,
+      stereoBalanceDb: this.stereo.balanceDb,
+      stereoStatus: this.lastStereo ? this.lastStereo.status : stereo.mono ? MONO : null,
+      stereoDetail: this.lastStereo ? this.lastStereo.detail : null,
       status: c.status,
       detectors: c.detectors,
       dwellRate: c.dwellRate,

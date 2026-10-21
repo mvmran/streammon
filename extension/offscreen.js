@@ -164,9 +164,12 @@ function wantSpectrum() {
       spectrumTimer = null;
       return;
     }
-    const data = new Float32Array(engine.analyser.frequencyBinCount);
+    const n = engine.analyser.frequencyBinCount;
+    const data = new Float32Array(n), left = new Float32Array(n), right = new Float32Array(n);
     engine.analyser.getFloatFrequencyData(data);
-    broadcast({ type: 'spectrum', data, sampleRate: engine.ctx.sampleRate });
+    engine.analyserL.getFloatFrequencyData(left);
+    engine.analyserR.getFloatFrequencyData(right);
+    broadcast({ type: 'spectrum', data, left, right, sampleRate: engine.ctx.sampleRate });
   }, 100);
 }
 

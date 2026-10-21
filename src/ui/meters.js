@@ -8,11 +8,15 @@ import { StereoBandsView } from './stereo-view.js';
 import { fmtDb, fmtDuration, fmtClock, escapeHtml } from './format.js';
 
 const STATUS_ICON = { CLEAN: '✓', LIMITED: '▲', CLIPPING: '✖', IDLE: '' };
+// Stereo status word (src/dsp/stereobands.js): icon and badge style.
+const STEREO_ICON = { 'STEREO OK': '✓ ', WIDE: '◐ ', UNBALANCED: '▲ ', 'PHASE PROBLEM': '✖ ' };
+const STEREO_STYLE = { MONO: 'mono', 'STEREO OK': 'ok', WIDE: 'warn', UNBALANCED: 'warn', 'PHASE PROBLEM': 'crit' };
+const CRITICAL_ALERTS = new Set(['clipping', 'truePeak', 'stereoPhase']);
 
 const IDS = {
   statusTile: 'status-tile', status: 'status', statusIcon: 'status-icon', statusDetail: 'status-detail',
   st: 'st', mom: 'mom', stChip: 'st-chip', int: 'int', lra: 'lra', tp: 'tp', tpNow: 'tp-now', tpChip: 'tp-chip',
-  tpTile: 'tp-tile', crest: 'crest', peak: 'peak', mono: 'mono', corr: 'corr', sidemid: 'sidemid',
+  tpTile: 'tp-tile', crest: 'crest', peak: 'peak', mono: 'mono', corr: 'corr', sidemid: 'sidemid', stereoDetail: 'stereo-detail',
   dDwell: 'd-dwell', dPile: 'd-pile', dPin: 'd-pin', dCeil: 'd-ceil', dFs: 'd-fs',
 };
 
@@ -62,8 +66,16 @@ export class MetersView {
     if (el.tpTile) el.tpTile.classList.toggle('alerting', over);
     setText(el.crest, fmtDb(f.crestDb));
     setText(el.peak, fmtDb(f.samplePeakDb));
-    setText(el.mono, f.correlation === null ? '--' : f.mono ? 'MONO' : 'STEREO');
-    if (el.mono) el.mono.classList.toggle('mono', !!f.mono);
+    // Frames from an older offscreen document may lack stereoStatus: fall back to MONO/STEREO.
+    const ss = f.stereoStatus !== undefined ? f.stereoStatus : f.correlation === null ? null : f.mono ? 'MONO' : 'STEREO';
+    setText(el.mono, ss ? `${STEREO_ICON[ss] || ''}${ss}` : '--');
+    if (el.mono) {
+      el.mono.dataset.stereo = STEREO_STYLE[ss] || '';
+      el.mono.classList.toggle('mono', ss === 'MONO');
+      el.mono.classList.toggle('long', !!ss && ss.length > 6); // longer words get a smaller badge
+      el.mono.title = f.stereoDetail || '';
+    }
+    setText(el.stereoDetail, f.stereoDetail || (ss ? '' : 'Too quiet to judge'));
     setText(el.corr, f.correlation === null ? '--' : f.correlation.toFixed(3));
     setText(el.sidemid, f.sideMidDb === null ? '--' : `${fmtDb(f.sideMidDb)} dB`);
     if (this.stereoBands) this.stereoBands.render(f.bands);
@@ -83,11 +95,14 @@ export class MetersView {
   }
 
   reset(detail) {
-    for (const k of ['st', 'mom', 'int', 'lra', 'tp', 'tpNow', 'crest', 'peak', 'mono', 'corr', 'sidemid', 'dDwell', 'dPile', 'dPin', 'dCeil', 'dFs']) setText(this.el[k], '--');
+    for (const k of ['st', 'mom', 'int', 'lra', 'tp', 'tpNow', 'crest', 'peak', 'mono', 'corr', 'sidemid', 'stereoDetail', 'dDwell', 'dPile', 'dPin', 'dCeil', 'dFs']) setText(this.el[k], '--');
     setChip(this.el.stChip, '', '');
     setChip(this.el.tpChip, '', '');
     if (this.el.tpTile) this.el.tpTile.classList.remove('alerting');
-    if (this.el.mono) this.el.mono.classList.remove('mono');
+    if (this.el.mono) {
+      this.el.mono.classList.remove('mono', 'long');
+      this.el.mono.dataset.stereo = '';
+    }
     if (this.stereoBands) this.stereoBands.clear();
     this.renderStatus('IDLE');
     setText(this.el.statusDetail, detail);
@@ -139,8 +154,8 @@ export function renderAlertBanners(container, active, { dismissed, startWall, on
   for (const [id, a] of Object.entries(active)) {
     if (dismissed.has(id)) continue;
     const div = document.createElement('div');
-    div.className = `alert ${id === 'clipping' || id === 'truePeak' ? '' : 'warning'}`;
-    div.innerHTML = `<span class="icon" aria-hidden="true">${id === 'clipping' ? '✖' : '⚠'}</span><span>${escapeHtml(ALERT_LABELS[id])}: ${escapeHtml(a.message)}</span><span class="since">since ${fmtClock(new Date(startWall + a.since * 1000))}</span><button type="button" title="Dismiss until it happens again" aria-label="Dismiss">×</button>`;
+    div.className = `alert ${CRITICAL_ALERTS.has(id) ? '' : 'warning'}`;
+    div.innerHTML = `<span class="icon" aria-hidden="true">${id === 'clipping' || id === 'stereoPhase' ? '✖' : '⚠'}</span><span>${escapeHtml(ALERT_LABELS[id])}: ${escapeHtml(a.message)}</span><span class="since">since ${fmtClock(new Date(startWall + a.since * 1000))}</span><button type="button" title="Dismiss until it happens again" aria-label="Dismiss">×</button>`;
     div.querySelector('button').addEventListener('click', () => onDismiss(id));
     container.append(div);
   }
@@ -170,6 +185,15 @@ export function createHistoryChart(canvas, xFormat, { compact = false } = {}) {
     band: { from: -16, to: -12, label: compact ? 'target' : 'target −16 to −12 LUFS' },
     refs: (c) => [{ y: -10, label: '−10 LUFS', colour: '--serious' }, ...ceilingRef(c.rows)],
     statusStrip: true,
+    xFormat,
+  });
+}
+
+// Stereo correlation strip under the loudness history, on the same time axis.
+export function createCorrelationChart(canvas, xFormat) {
+  return new TimeChart(canvas, {
+    yMin: -1, yMax: 1, yStep: 1, unit: 'corr',
+    series: [{ key: 'correlation', label: 'Correlation', colour: '--series-2', format: (v) => v.toFixed(2) }],
     xFormat,
   });
 }

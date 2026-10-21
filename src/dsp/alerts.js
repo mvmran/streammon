@@ -8,6 +8,8 @@ export const DEFAULT_ALERTS = {
   integratedOff: { enabled: true, target: -14, tolerance: 4, minSeconds: 60 },
   // Mains hum: these also configure the detector (mains frequency, alert level, speech target).
   hum: { enabled: true, mainsFrequencyHz: 50, alertLevelDbfs: -75, speechTargetLufs: -18, seconds: 5 },
+  // Stereo status (live sources): phase problem and imbalance alerts; a mono-feed alert is opt-in.
+  stereo: { enabled: true, phaseSeconds: 5, unbalancedSeconds: 15, mono: false, monoSeconds: 10 },
   clearAfterSec: 5, // an alert stays up until its condition has been absent this long
   sound: false, // off by default: this runs during services
 };
@@ -18,6 +20,9 @@ export const ALERT_LABELS = {
   shortTermHigh: 'Too loud',
   integratedOff: 'Integrated loudness off target',
   hum: 'Mains hum',
+  stereoPhase: 'Phase problem',
+  stereoBalance: 'Stereo unbalanced',
+  stereoMono: 'Mono feed',
 };
 
 // The detector settings held in the alert configuration.
@@ -42,7 +47,7 @@ export class AlertMonitor {
   }
 
   reset() {
-    this.run = { clipping: 0, shortTermHigh: 0, hum: 0 };
+    this.run = { clipping: 0, shortTermHigh: 0, hum: 0, stereoPhase: 0, stereoBalance: 0, stereoMono: 0 };
     this.active = {}; // id -> { since, lastSeen, message }
   }
 
@@ -69,6 +74,13 @@ export class AlertMonitor {
       const proj = Number.isFinite(row.humProjectedDb) ? `; at ${hm.speechTargetLufs} LUFS speech it would be ${fmt(row.humProjectedDb)} dBFS` : '';
       out.hum = `${fmt(row.humLevelDb)} dBFS at ${row.humFrequencyHz.toFixed(2)} Hz${proj}`;
     }
+    const sc = c.stereo;
+    this.run.stereoPhase = row.stereoStatus === 'PHASE PROBLEM' ? this.run.stereoPhase + 1 : 0;
+    this.run.stereoBalance = row.stereoStatus === 'UNBALANCED' ? this.run.stereoBalance + 1 : 0;
+    this.run.stereoMono = row.stereoStatus === 'MONO' ? this.run.stereoMono + 1 : 0;
+    if (sc.enabled && this.run.stereoPhase >= sc.phaseSeconds) out.stereoPhase = `${row.stereoDetail} (${this.run.stereoPhase} s)`;
+    if (sc.enabled && this.run.stereoBalance >= sc.unbalancedSeconds) out.stereoBalance = `${row.stereoDetail} (${this.run.stereoBalance} s)`;
+    if (sc.enabled && sc.mono && this.run.stereoMono >= sc.monoSeconds) out.stereoMono = `Left and right identical for ${this.run.stereoMono} s`;
     const io = c.integratedOff;
     if (io.enabled && row.t >= io.minSeconds && Number.isFinite(row.integrated) && Math.abs(row.integrated - io.target) > io.tolerance) {
       out.integratedOff = `Integrated ${fmt(row.integrated)} LUFS (target ${io.target} ±${io.tolerance})`;

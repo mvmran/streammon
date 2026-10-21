@@ -159,6 +159,12 @@ main { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 12px
 
 .badge { display: inline-block; font-size: 0.6em; padding: 2px 12px; border-radius: 6px; border: 2px solid var(--axis); color: var(--text-2); }
 .badge.mono { border-color: var(--text); color: var(--text); }
+/* Stereo status word: status colour on the border and a light tint, label in text colour. */
+.badge[data-stereo='ok'] { border-color: var(--good); color: var(--text); }
+.badge[data-stereo='warn'] { border-color: var(--warning); color: var(--text); background: rgba(250, 178, 25, 0.12); }
+.badge[data-stereo='crit'] { border-color: var(--critical); color: var(--text); background: rgba(208, 59, 59, 0.22); }
+.badge.long { font-size: clamp(0.75rem, 6.5cqi, 1.3rem); padding: 4px 10px; white-space: nowrap; }
+.corr-strip { margin-top: 4px; }
 
 .chip { display: inline-block; font-size: 0.75rem; padding: 0 8px; border-radius: 10px; border: 1px solid currentColor; margin-left: 6px; }
 .chip.good { color: var(--good); }
@@ -198,6 +204,7 @@ main { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 12px
 
 /* Log and detectors */
 .bottom { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 900px) { .bottom { grid-template-columns: 3fr 1fr; } }
 .log-actions, .file-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .log-scroll { max-height: 320px; overflow: auto; }
 table.log { width: 100%; border-collapse: collapse; font-size: 0.85rem; font-variant-numeric: tabular-nums; }

@@ -8,7 +8,7 @@ const STATUS_FAINT = new Set(['CLEAN']); // drawn at reduced opacity: the normal
 const X_STEPS = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
 
 export class TimeChart {
-  // opts: { yMin, yMax, yStep, series: [{ key, label, colour }], band: { from, to, label },
+  // opts: { yMin, yMax, yStep, series: [{ key, label, colour, format(v) }], band: { from, to, label },
   //         refs: (chart) => [{ y, label, dash }], statusStrip, statusKey, statusColours,
   //         statusFaint, xFormat(t), onClick(t), unit }
   constructor(canvas, opts) {
@@ -118,7 +118,9 @@ export class TimeChart {
     this.draw();
     const lines = [`<div class="k">${this.opts.xFormat(row.t, row)}</div>`];
     for (const s of this.opts.series) {
-      lines.push(`<div class="row"><span class="sw" style="background:var(${s.colour})"></span><span class="k">${s.label}</span><span class="val">${fmtDb(row[s.key])}</span></div>`);
+      const v = row[s.key];
+      const text = s.format ? (Number.isFinite(v) ? s.format(v) : '--') : fmtDb(v);
+      lines.push(`<div class="row"><span class="sw" style="background:var(${s.colour})"></span><span class="k">${s.label}</span><span class="val">${text}</span></div>`);
     }
     const sk = this.opts.statusKey || 'status';
     if (row[sk]) lines.push(`<div class="row"><span class="k">Status</span><span class="val">${row[sk]}</span></div>`);

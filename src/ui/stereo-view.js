@@ -4,6 +4,7 @@
 // beside it. Bands below JUDGE_DB are outlined and left out of the summary line. Fed from frame.bands (src/dsp/stereobands.js).
 
 import { css, fmtDb } from './format.js';
+import { STEREO_RULES } from '../dsp/stereobands.js';
 
 // Ordinal one-hue ramp, validated for the dark surface: five shades, two octaves each.
 const SHADES = ['#184f95', '#2a78d6', '#5598e7', '#86b6ef', '#cde2fb'];
@@ -12,7 +13,7 @@ const LEVEL_RANGE = 40; // dB below the loudest band at which a dot reaches mini
 const HIDE_BELOW = 50; // dB below the loudest band: too quiet to place reliably
 // Below this a band is mostly the source's own noise (e.g. two mic capsules' independent
 // hiss reads as near-zero or negative correlation): drawn as an outline, not judged.
-const JUDGE_DB = -70;
+const JUDGE_DB = STEREO_RULES.judgeDb;
 const R_MIN = 1.2, R_MAX = 7; // dot radius (CSS px); hover still finds small dots within 12 px
 const BAL_TICK = 6; // dB, gridlines either side of centre
 const BAL_MARKS = [3, 6, 10, 20]; // dB, labelled ticks either side (the edges are one side only)

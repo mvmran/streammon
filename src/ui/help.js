@@ -14,15 +14,17 @@ export const HELP = {
   crest:
     'How far the peaks stand above the average level, over the last 3 seconds. Natural speech and music: about 12–20 dB. Heavily limited audio: about 10–11 dB. Clipped audio: often under 9 dB.',
   stereo:
-    'MONO means left and right are identical (correlation above 0.999); all our feeds are normally mono. Corr is the left/right correlation: 1 identical, 0 unrelated, negative means out of phase (it can cancel on mono speakers). S/M is how much side (stereo) content there is compared with the centre.',
+    'One word for the stereo picture. MONO: left and right identical. STEREO OK: balanced, with positive correlation. WIDE: most of the sound has little in common between the sides. UNBALANCED: the whole mix is more than 3 dB louder on one side. PHASE PROBLEM: a loud band is out of phase and cancels on mono speakers and phones (this raises an alert). Corr is the overall left/right correlation; S/M is how much side (stereo) content there is compared with the centre.',
   history:
-    'Short-term loudness over time. The shaded band is the −16 to −12 LUFS target. Dashed lines: −10 LUFS (too loud) and the level the peaks keep reaching (the clip ceiling when clipping). The coloured strip underneath is the status each second: green clean, amber limited, red clipping. Hover the graph for values.',
+    'Short-term loudness over time. The shaded band is the −16 to −12 LUFS target. Dashed lines: −10 LUFS (too loud) and the level the peaks keep reaching (the clip ceiling when clipping). The coloured strip underneath is the status each second: green clean, amber limited, red clipping. Below that, the stereo correlation on the same time axis: +1 mono, 0 wide, below 0 out of phase. Hover the graphs for values.',
   peaks:
     'The highest sample (blue) and true peak (orange) in each second. Natural audio makes a jagged line. A flat line of peaks sitting at one level means something is clipping or limiting. Dashed lines: the true-peak alert limit and the ceiling.',
   spectrum:
     'How much energy is in each third of an octave, from deep bass (left) to treble (right). The bars show this instant; the thin line is the average over about 5 seconds, the same averaging as the octave balance, so the two agree. The darker bars are the octave-balance frequencies; each octave there covers its darker bar and the bar either side. Hover a bar for its reading. Useful for spotting boomy lows, harshness or missing highs. Display only: it does not affect any measurement.',
   spectrogram:
-    'The spectrum over the last 40 seconds or so, scrolling downwards: newest at the top, frequency left to right on the same scale as the spectrum bars above, brighter means louder. Hover for a reading; each pixel is the loudest single FFT bin in its range, so it reads lower than the bars. Content stopping around 16 kHz is normal for YouTube audio.',
+    'The spectrum over the last 50 seconds or so, scrolling downwards: newest at the top, frequency left to right on the same scale as the spectrum bars above, brighter means louder. Hover for a reading; each pixel is the loudest single FFT bin in its range, so it reads lower than the bars. Content stopping around 16 kHz is normal for YouTube audio.',
+  'pan-map':
+    'Where the sound sits left to right (across) at each frequency (up), averaged over about a second. Brighter means louder. A centred vocal and bass make a bright column in the middle; instruments panned to one side light up off-centre. On a mono feed everything is in the centre column. The edges mean one channel only.',
   'stereo-bands':
     'One dot per octave, darker for bass and lighter for treble. Up and down is L/R correlation: +1 is mono, 0 is wide, below 0 is out of phase (cancels on a mono speaker). Left and right is balance. Bigger dots are louder bands; outlined dots are too quiet to judge. The dashed half-oval is roughly where a healthy stereo mix sits. Averaged over 1 second.',
   balance:

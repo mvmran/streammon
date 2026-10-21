@@ -4,9 +4,10 @@
 
 import { connectHub } from './client.js';
 import { checkPlayer, describePlayer } from './player.js';
-import { MetersView, renderAlertBanners, createHistoryChart, createPeakChart, showRecent, timeFormatter, bindMeterResets } from './src/ui/meters.js';
+import { MetersView, renderAlertBanners, createHistoryChart, createCorrelationChart, createPeakChart, showRecent, timeFormatter, bindMeterResets } from './src/ui/meters.js';
 import { EventLog } from './src/ui/log.js';
 import { SpectrumView } from './src/ui/spectrum.js';
+import { PanMapView } from './src/ui/pan-map.js';
 import { loadAlertConfig, setupSettings } from './src/ui/settings.js';
 import { setupHelp } from './src/ui/help.js';
 import { HumView } from './src/ui/hum-view.js';
@@ -44,8 +45,10 @@ const meters = new MetersView(() => state.cfg);
 const xFormat = timeFormatter(() => ({ mode: 'live', startWall: state.session ? state.session.startWall : 0 }));
 const charts = [];
 if ($('history')) charts.push(createHistoryChart($('history'), xFormat, { compact }));
+if ($('corr-history')) charts.push(createCorrelationChart($('corr-history'), xFormat));
 if ($('peaks')) charts.push(createPeakChart($('peaks'), xFormat, () => state.cfg));
 const spectrum = $('bands') ? new SpectrumView({ bands: $('bands'), sgram: $('sgram'), balance: $('balance') }) : null;
+const panMap = $('pan-map') ? new PanMapView($('pan-map')) : null;
 const log = new EventLog($('log-body'), $('log-empty'));
 const humView = new HumView(() => state.cfg);
 
@@ -73,6 +76,7 @@ function resetSession() {
   meters.reset('Waiting for audio…');
   humView.reset();
   if (spectrum) spectrum.clear();
+  if (panMap) panMap.clear();
   renderAlerts();
   redraw();
 }
@@ -157,6 +161,7 @@ function tick(now) {
   }
   if (spectrum && state.spectrum) {
     spectrum.updateData(state.spectrum.data, state.spectrum.sampleRate, dt);
+    if (panMap && state.spectrum.left) panMap.update(state.spectrum.left, state.spectrum.right, state.spectrum.sampleRate, dt);
     state.spectrum = null;
   }
   if ($('wallclock')) $('wallclock').textContent = fmtClock(new Date());
