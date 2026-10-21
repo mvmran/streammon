@@ -9,7 +9,8 @@ const X_STEPS = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600];
 
 export class TimeChart {
   // opts: { yMin, yMax, yStep, series: [{ key, label, colour, format(v), axis: 'right' }],
-  //         right: { min, max, step, unit } (a second scale on the right for axis: 'right' series), band: { from, to, label },
+  //         right: { min, max, step, unit, span: [from, to] } (a second scale on the right for
+  //         axis: 'right' series, over the [from, to] fraction of the plot height, 0 = bottom), band: { from, to, label },
   //         refs: (chart) => [{ y, label, dash }], statusStrip, statusKey, statusColours,
   //         statusFaint, xFormat(t), onClick(t), unit }
   constructor(canvas, opts) {
@@ -96,9 +97,14 @@ export class TimeChart {
   ys(s, v) {
     const r = this.opts.right;
     if (s.axis !== 'right' || !r) return this.y(v);
-    const p = this.plot;
-    const c = Math.max(r.min, Math.min(r.max, v));
-    return p.b - ((c - r.min) / (r.max - r.min)) * (p.b - p.t);
+    return this.yRight(Math.max(r.min, Math.min(r.max, v)));
+  }
+
+  yRight(v) {
+    const p = this.plot, r = this.opts.right;
+    const [from, to] = r.span || [0, 1];
+    const f = from + ((v - r.min) / (r.max - r.min)) * (to - from);
+    return p.b - f * (p.b - p.t);
   }
 
   tAt(e) {
@@ -186,12 +192,12 @@ export class TimeChart {
       const r = o.right;
       ctx.textAlign = 'left';
       for (let v = r.min; v <= r.max + 1e-9; v += r.step) {
-        const y = p.b - ((v - r.min) / (r.max - r.min)) * (p.b - p.t);
+        const y = this.yRight(v);
         const text = (v > 0 ? `+${v}` : String(Math.round(v * 100) / 100)).replace('-', '−');
         ctx.fillText(text, p.r + 6, Math.round(y) + 0.5);
       }
       ctx.save();
-      ctx.translate(this.w - 6, (p.t + p.b) / 2);
+      ctx.translate(this.w - 6, (this.yRight(r.min) + this.yRight(r.max)) / 2);
       ctx.rotate(Math.PI / 2);
       ctx.textAlign = 'center';
       ctx.fillText(r.unit, 0, 0);

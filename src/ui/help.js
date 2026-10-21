@@ -16,7 +16,7 @@ export const HELP = {
   stereo:
     'One word for the stereo picture. MONO: left and right identical. STEREO OK: balanced, with positive correlation. WIDE: most of the sound has little in common between the sides. UNBALANCED: the whole mix is more than 3 dB louder on one side. PHASE PROBLEM: a loud band is out of phase and cancels on mono speakers and phones (this raises an alert). Corr is the overall left/right correlation; S/M is how much side (stereo) content there is compared with the centre.',
   history:
-    'Short-term loudness over time. The shaded band is the −16 to −12 LUFS target. Dashed lines: −10 LUFS (too loud) and the level the peaks keep reaching (the clip ceiling when clipping). The coloured strip underneath is the status each second: green clean, amber limited, red clipping. The orange line is the stereo correlation, read on the right-hand scale: +1 mono, 0 wide, below 0 out of phase. Hover the graph for values.',
+    'Short-term loudness over time. The shaded band is the −16 to −12 LUFS target. Dashed lines: −10 LUFS (too loud) and the level the peaks keep reaching (the clip ceiling when clipping). The coloured strip underneath is the status each second: green clean, amber limited, red clipping. The orange line is the stereo correlation, read on the right-hand scale in the lower half: +1 mono, 0 wide, below 0 out of phase. Hover the graph for values.',
   peaks:
     'The highest sample (blue) and true peak (orange) in each second. Natural audio makes a jagged line. A flat line of peaks sitting at one level means something is clipping or limiting. Dashed lines: the true-peak alert limit and the ceiling.',
   spectrum:
