@@ -26,6 +26,11 @@ node tools/make-icons.mjs   # re-render extension/icons/*.png (only when the ico
 npm run store:assets        # re-render the Chrome Web Store screenshots/promo tile into store/ (needs test-audio/)
 ```
 
+**Version numbers (the user's rule):**
+- By default, bump only the last number (1.1.0 → 1.1.1).
+- Ask the user before bumping the middle number, even for a change that seems big enough.
+- Never change the first number unless the user agrees, and then only for a major rewrite or similar.
+
 Releases: bump `version` in `extension/manifest.json` (and `package.json`), run `npm run build:extension`, then upload `dist/streammon-extension-<version>.zip`. Store listing text, permission justifications and images are in `store/`; the privacy policy is `PRIVACY.md`. **If you add or remove a permission, update `PRIVACY.md` and `store/listing.md` too**, because the Web Store rejects unused or unexplained permissions. The repo is public (github.com/mvmran/streammon, GPL-3.0-or-later). `test-audio/` is git-ignored (service recordings) and the recording-based tests skip without it.
 
 Never edit `dist/`. It is rebuilt from `extension/` and the `SHARED` list in `tools/build-extension.mjs`. A new `src/` module the extension imports must be added to that list.
