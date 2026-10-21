@@ -13,7 +13,7 @@ const HIDE_BELOW = 50; // dB below the loudest band: too quiet to place reliably
 // Below this a band is mostly the source's own noise (e.g. two mic capsules' independent
 // hiss reads as near-zero or negative correlation): drawn as an outline, not judged.
 const JUDGE_DB = -70;
-const R_MIN = 4, R_MAX = 10;
+const R_MIN = 1.5, R_MAX = 10; // dot radius (CSS px); hover still finds small dots within 12 px
 const BAL_TICK = 6; // dB, gridlines either side of centre
 
 const labelHz = (f) => (f >= 1000 ? `${Math.round(f / 100) / 10}k` : String(Math.round(f)));
@@ -98,7 +98,7 @@ export class StereoBandsView {
     if (!this.w) return;
     const ctx = this.canvas.getContext('2d');
     const w = this.w, h = this.h;
-    const p = { l: 28, r: w - 10, t: 10, b: h - 22 };
+    const p = { l: 42, r: w - 10, t: 10, b: h - 22 };
     const cx = (p.l + p.r) / 2;
     const xOf = (db) => cx + balancePos(db) * ((p.r - p.l) / 2);
     const yOf = (c) => p.t + ((1 - c) / 2) * (p.b - p.t);
@@ -120,8 +120,14 @@ export class StereoBandsView {
       ctx.moveTo(p.l, y);
       ctx.lineTo(p.r, y);
       ctx.stroke();
-      if (c === 1 || c === 0 || c === -1) ctx.fillText(c === 1 ? '+1' : c === -1 ? '−1' : '0', p.l - 5, y);
+      ctx.fillText(c > 0 ? `+${c}` : String(c).replace('-', '−'), p.l - 5, y);
     }
+    ctx.save();
+    ctx.translate(8, (p.t + p.b) / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = 'center';
+    ctx.fillText('correlation', 0, 0);
+    ctx.restore();
     for (const db of [-BAL_TICK, 0, BAL_TICK]) {
       const x = Math.round(xOf(db)) + 0.5;
       ctx.strokeStyle = css(db === 0 ? '--axis' : '--grid');
@@ -141,7 +147,8 @@ export class StereoBandsView {
     ctx.fillText('mono', p.l + 4, p.t + 8);
     ctx.fillText('out of phase', p.l + 4, p.b - 8);
 
-    // Dots, quietest first so the loudest sit on top, each with a 2px surface ring.
+    // Dots, quietest first so the loudest sit on top, each with a 2px surface ring
+    // drawn outside the dot so small dots keep their full size.
     const placed = this.placed().sort((a, b) => a.rel - b.rel);
     this.dots = placed.map((b) => ({
       x: xOf(b.balanceDb),
@@ -150,15 +157,19 @@ export class StereoBandsView {
       band: b,
     }));
     for (const d of this.dots) {
-      ctx.beginPath();
-      ctx.arc(d.x, d.y, d.r, 0, 2 * Math.PI);
       if (d.band.levelDb >= JUDGE_DB) {
-        ctx.fillStyle = shadeOf(d.band.i);
-        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, d.r + 1, 0, 2 * Math.PI);
         ctx.lineWidth = 2;
         ctx.strokeStyle = css('--surface');
         ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, d.r, 0, 2 * Math.PI);
+        ctx.fillStyle = shadeOf(d.band.i);
+        ctx.fill();
       } else {
+        ctx.beginPath();
+        ctx.arc(d.x, d.y, Math.max(d.r, 2.5), 0, 2 * Math.PI);
         ctx.lineWidth = 1.5;
         ctx.strokeStyle = shadeOf(d.band.i);
         ctx.stroke();
