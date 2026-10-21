@@ -126,7 +126,7 @@ async function main() {
         return [c.height, Math.round(c.getBoundingClientRect().height), Number(c.style.height.replace('px', ''))];
       }),
     }));
-    check(sizes.every(([px, css, set]) => set <= 353 && css <= set + 1 && px <= Math.ceil(set * dpr) + 1), `spectrum canvases keep their size at ${dpr}x scaling (${JSON.stringify(sizes)})`);
+    check(sizes.every(([px, css, set]) => set <= 459 && css <= set + 1 && px <= Math.ceil(set * dpr) + 1), `spectrum canvases keep their size at ${dpr}x scaling (${JSON.stringify(sizes)})`);
     const hoverText = async (id, fx, fy) => {
       const box = await page.locator(`#${id}`).boundingBox();
       await page.mouse.move(box.x + box.width * fx, box.y + box.height * fy);

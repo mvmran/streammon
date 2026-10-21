@@ -178,7 +178,7 @@ main { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 12px
 .seg button.on { background: var(--surface-2); color: var(--text); font-weight: 600; }
 
 .spectrum { display: grid; grid-template-columns: 1fr; gap: 12px; }
-@media (min-width: 900px) { .spectrum { grid-template-columns: minmax(0, 1fr) minmax(300px, 390px); align-items: start; } }
+@media (min-width: 900px) { .spectrum { grid-template-columns: minmax(0, 2.2fr) minmax(340px, 1fr); align-items: start; } }
 .panel-head.sub { margin-top: 14px; }
 .side-stack { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .stereo-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 3px; margin-top: 6px; color: var(--text-2); }
@@ -188,7 +188,7 @@ main { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 12px
 .stereo-legend .zone { display: inline-block; width: 16px; height: 8px; border: 1px dashed rgba(255, 255, 255, 0.45); border-top: none; border-radius: 0 0 8px 8px; background: rgba(255, 255, 255, 0.05); }
 .stereo-note { margin: 6px 0 0; color: var(--text-2); }
 
-.balance { display: grid; grid-template-columns: 4.2em 1fr 3.6em; gap: 5px 8px; align-items: center; font-size: 0.85rem; }
+.balance { display: grid; grid-template-columns: 4.2em 1fr 3.6em; gap: 2px 8px; align-items: center; font-size: 0.85rem; }
 .balance .f { color: var(--text-2); text-align: right; }
 .balance .v { text-align: right; font-variant-numeric: tabular-nums; }
 .balance .track { position: relative; height: 12px; }
