@@ -99,6 +99,7 @@ input[type='number'] { width: 5.5em; }
   background: var(--surface);
   border-left: 4px solid var(--muted);
 }
+.notice a { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
 .notice.warning { border-left-color: var(--warning); }
 .notice.serious { border-left-color: var(--serious); }
 .notice.critical { border-left-color: var(--critical); }
