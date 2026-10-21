@@ -15,6 +15,7 @@ const HIDE_BELOW = 50; // dB below the loudest band: too quiet to place reliably
 const JUDGE_DB = -70;
 const R_MIN = 1.2, R_MAX = 7; // dot radius (CSS px); hover still finds small dots within 12 px
 const BAL_TICK = 6; // dB, gridlines either side of centre
+const BAL_MARKS = [3, 6, 10, 20]; // dB, labelled ticks either side (the edges are one side only)
 // Rough area where the bands of a healthy stereo mix sit: a half-ellipse hanging from the
 // mono line, ±3 dB of balance wide and down to correlation +0.2 at the centre. A guide, not
 // a rule: bass belongs near the top, wide reverb or keys can dip a little below.
@@ -103,7 +104,7 @@ export class StereoBandsView {
     if (!this.w) return;
     const ctx = this.canvas.getContext('2d');
     const w = this.w, h = this.h;
-    const p = { l: 42, r: w - 10, t: 10, b: h - 22 };
+    const p = { l: 42, r: w - 10, t: 10, b: h - 36 };
     const cx = (p.l + p.r) / 2;
     const xOf = (db) => cx + balancePos(db) * ((p.r - p.l) / 2);
     const yOf = (c) => p.t + ((1 - c) / 2) * (p.b - p.t);
@@ -152,14 +153,38 @@ export class StereoBandsView {
     ctx.strokeStyle = 'rgba(255,255,255,0.35)';
     ctx.stroke();
     ctx.setLineDash([]);
+    // Balance axis: ticks at BAL_MARKS on both sides, labelled where they fit (the scale is
+    // compressed towards the edges, which mean one channel only).
     ctx.fillStyle = css('--muted');
+    ctx.strokeStyle = css('--muted');
+    const ly = p.b + 11;
+    const taken = [];
+    const label = (text, x, align) => {
+      const tw = ctx.measureText(text).width;
+      const x0 = align === 'left' ? x : align === 'right' ? x - tw : x - tw / 2;
+      if (taken.some(([a, b]) => x0 < b + 6 && x0 + tw > a - 6)) return;
+      taken.push([x0, x0 + tw]);
+      ctx.textAlign = align;
+      ctx.fillText(text, x, ly);
+    };
+    for (const db of BAL_MARKS) {
+      for (const x of [xOf(-db), xOf(db)]) {
+        const xx = Math.round(x) + 0.5;
+        ctx.beginPath();
+        ctx.moveTo(xx, p.b);
+        ctx.lineTo(xx, p.b + 4);
+        ctx.stroke();
+      }
+    }
+    label('C', cx, 'center');
+    label('L only', p.l, 'left');
+    label('R only', p.r, 'right');
+    for (const db of BAL_MARKS) {
+      label(String(db), xOf(-db), 'center');
+      label(String(db), xOf(db), 'center');
+    }
     ctx.textAlign = 'center';
-    const ly = p.b + 12;
-    ctx.fillText('L', p.l + 4, ly);
-    ctx.fillText(`${BAL_TICK} dB`, xOf(-BAL_TICK), ly);
-    ctx.fillText('C', cx, ly);
-    ctx.fillText(`${BAL_TICK} dB`, xOf(BAL_TICK), ly);
-    ctx.fillText('R', p.r - 4, ly);
+    ctx.fillText('balance: dB louder on that side', cx, p.b + 27);
     ctx.textAlign = 'left';
     ctx.fillText('mono', p.l + 4, p.t + 8);
     ctx.fillText('out of phase', p.l + 4, p.b - 8);

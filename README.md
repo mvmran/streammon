@@ -143,8 +143,13 @@ The text under the status says how it was detected:
   **−1 dBTP** so YouTube's encoder has headroom.
 - **Crest factor**: peak minus average level. Natural speech/music is typically 12–20 dB;
   heavily limited audio is around 10–11 dB and clipped audio often under 9 dB.
-- **MONO badge**: shown when left and right are identical (correlation > 0.999). All our
-  feeds so far are effectively mono.
+- **MONO badge**: shown when left and right are identical (correlation > 0.999). Our
+  feeds are currently mono because of a configuration problem; the aim is full stereo.
+- **Stereo by band**: one dot per octave, placed by balance (left/right) and correlation
+  (+1 mono at the top, below 0 out of phase). The dashed half-oval is roughly where a
+  healthy stereo mix sits. A band below 0 cancels on mono speakers and phones.
+- **Spectrum, spectrogram and octave balance**: hover the spectrum bars or the spectrogram
+  for readings. The darker bars are the octave-balance frequencies.
 - **Peak per second**: a flat line of peaks at one level is the visual signature of
   clipping or limiting.
 
@@ -251,9 +256,10 @@ before changing any thresholds (`DEFAULT_CLIP_OPTIONS` in `src/dsp/clipdetect.js
 index.html, css/app.css
 src/dsp/          pure ES modules shared by the AudioWorklet, the file Worker and Node:
                   analyzer, loudness, kweighting, truepeak, clipdetect, stereo, crest,
-                  alerts, report (CSV/JSON), bands
+                  alerts, report (CSV/JSON), bands, hum, hum-isolate, stereobands
 src/audio/        analyzer-worklet, file-worker, engine (audio graph), sources (capture/decoding)
-src/ui/           app (controller), meters, charts, spectrum, log, session (CSV), settings, help
+src/ui/           app (controller), meters, charts, spectrum, stereo-view, hum-view, log,
+                  session (CSV), settings, help
 extension/        Chrome extension: background (service worker), offscreen (capture + session),
                   panel/dashboard pages (view.js), player check; built into dist/ with src/
 test/             node:test suites, WAV decoder, synthetic signals, e2e.mjs, e2e-extension.mjs
