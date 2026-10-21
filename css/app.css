@@ -178,7 +178,8 @@ main { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 12px
 .seg button.on { background: var(--surface-2); color: var(--text); font-weight: 600; }
 
 .spectrum { display: grid; grid-template-columns: 1fr; gap: 12px; }
-@media (min-width: 900px) { .spectrum { grid-template-columns: 2fr 2fr 1.3fr; } }
+@media (min-width: 900px) { .spectrum { grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); align-items: start; } }
+.panel-head.sub { margin-top: 14px; }
 
 .balance { display: grid; grid-template-columns: 4.2em 1fr 3.6em; gap: 5px 8px; align-items: center; font-size: 0.85rem; }
 .balance .f { color: var(--text-2); text-align: right; }

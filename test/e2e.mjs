@@ -123,10 +123,21 @@ async function main() {
       dpr: devicePixelRatio,
       sizes: ['bands', 'sgram'].map((id) => {
         const c = document.getElementById(id);
-        return [c.height, Math.round(c.getBoundingClientRect().height)];
+        return [c.height, Math.round(c.getBoundingClientRect().height), Number(c.style.height.replace('px', ''))];
       }),
     }));
-    check(sizes.every(([px, css]) => css <= 201 && px <= Math.ceil(200 * dpr) + 1), `spectrum canvases keep their size at ${dpr}x scaling (${JSON.stringify(sizes)})`);
+    check(sizes.every(([px, css, set]) => set <= 220 && css <= set + 1 && px <= Math.ceil(set * dpr) + 1), `spectrum canvases keep their size at ${dpr}x scaling (${JSON.stringify(sizes)})`);
+    const hoverText = async (id, fx, fy) => {
+      const box = await page.locator(`#${id}`).boundingBox();
+      await page.mouse.move(box.x + box.width * fx, box.y + box.height * fy);
+      await page.waitForSelector('#tooltip:not([hidden])', { timeout: 3000 });
+      return page.textContent('#tooltip');
+    };
+    const bandTip = await hoverText('bands', 0.5, 0.5);
+    check(/5 s average/.test(bandTip) && /octave/.test(bandTip), `hovering a spectrum bar shows its reading (${bandTip})`);
+    const sgTip = await hoverText('sgram', 0.5, 0.05);
+    check(/FFT bin/.test(sgTip) && /dB/.test(sgTip), `hovering the spectrogram shows a reading (${sgTip})`);
+    await page.mouse.move(0, 0);
     await page.screenshot({ path: join(OUT, 'device-mode.png'), fullPage: true });
     await page.click('#stop');
     check(!(await page.isDisabled('#export-csv')), 'CSV export available after stop');

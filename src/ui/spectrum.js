@@ -1,16 +1,23 @@
-// Spectrum display: 1/3-octave bars, scrolling spectrogram and octave balance.
-// Fed from an AnalyserNode, which is fine for display (measurements use raw samples).
+// Spectrum display: 1/3-octave bars, a waterfall spectrogram below them on the same
+// frequency axis, and octave balance. Fed from an AnalyserNode, which is fine for
+// display (measurements use raw samples).
 
 import { thirdOctaveLevels, THIRD_OCTAVE_CENTRES, bandLevels, OCTAVE_CENTRES } from '../dsp/bands.js';
 import { css, fmtDb } from './format.js';
 
 const DB_MIN = -100;
 const DB_MAX = -10;
-const SG_MIN = 30; // spectrogram frequency range (Hz)
-const SG_MAX = 20000;
-const SG_AXIS = 34; // CSS px left of the spectrogram for the frequency labels
+// Shared frequency axis: the outer edges of the first and last 1/3-octave bands, so each
+// bar sits exactly above its own stretch of the spectrogram (log scale).
+const F_LO = THIRD_OCTAVE_CENTRES[0] / Math.pow(2, 1 / 6);
+const F_HI = THIRD_OCTAVE_CENTRES[THIRD_OCTAVE_CENTRES.length - 1] * Math.pow(2, 1 / 6);
+// Plot margins in CSS px, the same for both canvases so their frequency axes line up.
+const PLOT_L = 34;
+const PLOT_R = 6;
+const AXIS_B = 20; // frequency labels under each plot
 // The octave-balance centres (31 Hz … 16 kHz) are every third 1/3-octave band from index 1.
 const isOctaveCentre = (i) => i % 3 === 1;
+const BALANCE_SHOWN = OCTAVE_CENTRES.length - 1; // the balance lists 31 Hz to 8 kHz
 
 // Sequential single-hue ramp (dark surface -> blue -> near white) for the spectrogram.
 const RAMP = ['#1a1a19', '#104281', '#1c5cab', '#2a78d6', '#5598e7', '#86b6ef', '#cde2fb', '#ffffff'];
@@ -28,21 +35,42 @@ function buildLut() {
 }
 
 const labelHz = (f) => (f >= 1000 ? `${Math.round(f / 100) / 10}k` : String(Math.round(f)));
+const fmtHz = (f) => (f >= 1000 ? `${(f / 1000).toFixed(f >= 10000 ? 1 : 2)} kHz` : `${Math.round(f)} Hz`);
+// Fraction of the way along the log frequency axis, and back.
+const axisPos = (f) => Math.log(f / F_LO) / Math.log(F_HI / F_LO);
+const axisFreq = (u) => F_LO * Math.pow(F_HI / F_LO, u);
+
+function placeTip(tip, e) {
+  const tw = tip.offsetWidth;
+  const left = e.clientX + 14 + tw > window.innerWidth ? e.clientX - 14 - tw : e.clientX + 14;
+  tip.style.left = `${left}px`;
+  tip.style.top = `${Math.max(4, e.clientY - 20)}px`;
+}
+
+const tipRow = (k, v) => `<div class="row"><span class="k">${k}</span><span class="val">${v}</span></div>`;
 
 export class SpectrumView {
   constructor({ bands, sgram, balance }) {
     this.bands = bands;
     this.sgram = sgram;
     this.balanceEl = balance;
+    this.tooltip = document.getElementById('tooltip');
     this.lut = buildLut();
     this.data = null;
+    this.levels = null; // latest 1/3-octave levels (dB)
     this.octPower = null; // smoothed linear power per octave
     this.thirdPower = null; // smoothed linear power per 1/3 octave (the average line)
+    this.bandHover = null; // { i, e } while the pointer is over a bar
+    this.sgHover = null; // pointer event while over the spectrogram
+    // Spectrogram history: one byte per pixel (the colour index, 0.35 dB steps) in a ring
+    // of rows, newest drawn at the top, plus the time each row arrived.
+    this.sg = null;
     // The height attribute is the CSS height. Read it once: setting canvas.height to the
     // device-pixel size rewrites the attribute, so re-reading it would compound the
     // display scale on every resize (the canvas grows until Chrome can't draw it).
     this.cssHeight = new Map([bands, sgram].map((c) => [c, Number(c.getAttribute('height')) || 200]));
     for (const c of [bands, sgram]) new ResizeObserver(() => this.resize(c)).observe(c.parentElement);
+    this.bindHover();
     this.buildBalance();
   }
 
@@ -52,28 +80,140 @@ export class SpectrumView {
     const h = this.cssHeight.get(c);
     if (!w) return;
     c.style.height = `${h}px`;
+    c.width = Math.round(w * dpr);
+    c.height = Math.round(h * dpr);
     if (c === this.sgram) {
-      // One device pixel per column; keep the existing image when resizing.
-      const old = c.width ? c.getContext('2d').getImageData(0, 0, c.width, c.height) : null;
-      c.width = Math.round(w * dpr);
-      c.height = Math.round(h * dpr);
-      const ctx = c.getContext('2d');
-      ctx.fillStyle = RAMP[0];
-      ctx.fillRect(0, 0, c.width, c.height);
-      if (old) ctx.putImageData(old, c.width - old.width, 0);
-      this.rowBins = null;
-      this.drawSpectrogramAxis();
+      this.sw = w;
+      this.sh = h;
+      this.resizeHistory(dpr);
+      this.drawSpectrogram();
     } else {
-      c.width = Math.round(w * dpr);
-      c.height = Math.round(h * dpr);
       c.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
       this.bw = w;
       this.bh = h;
+      if (this.levels) this.drawBands();
     }
   }
 
+  // (Re)allocates the history for the current plot size, keeping what fits: the
+  // frequency axis scales with the width, so old columns are resampled.
+  resizeHistory(dpr) {
+    const x0 = Math.round(PLOT_L * dpr);
+    const cols = Math.max(1, Math.round((this.sw - PLOT_R) * dpr) - x0);
+    const rows = Math.max(1, Math.round((this.sh - AXIS_B) * dpr));
+    const old = this.sg;
+    const sg = { dpr, x0, cols, rows, vals: new Uint8Array(cols * rows), times: new Float64Array(rows), head: 0, count: 0, colBins: null };
+    sg.buf = document.createElement('canvas');
+    sg.buf.width = cols;
+    sg.buf.height = rows;
+    sg.bctx = sg.buf.getContext('2d');
+    sg.row = sg.bctx.createImageData(cols, 1);
+    if (old && old.count) {
+      sg.count = Math.min(old.count, rows);
+      for (let k = 0; k < sg.count; k++) {
+        const src = ((old.head - k + old.rows) % old.rows) * old.cols;
+        const dst = ((rows - k) % rows) * cols;
+        for (let x = 0; x < cols; x++) sg.vals[dst + x] = old.vals[src + Math.floor((x * old.cols) / cols)];
+        sg.times[(rows - k) % rows] = old.times[(old.head - k + old.rows) % old.rows];
+      }
+    }
+    this.sg = sg;
+    this.repaintHistory();
+  }
+
+  // Redraws the whole history image from the stored values.
+  repaintHistory() {
+    const sg = this.sg;
+    const img = sg.bctx.createImageData(sg.cols, sg.rows);
+    const px = img.data;
+    for (let k = 0; k < sg.rows; k++) {
+      const src = ((sg.head - k + sg.rows) % sg.rows) * sg.cols;
+      for (let x = 0; x < sg.cols; x++) {
+        const v = k < sg.count ? sg.vals[src + x] : 0;
+        const o = (k * sg.cols + x) * 4;
+        px[o] = this.lut[v * 3];
+        px[o + 1] = this.lut[v * 3 + 1];
+        px[o + 2] = this.lut[v * 3 + 2];
+        px[o + 3] = 255;
+      }
+    }
+    sg.bctx.putImageData(img, 0, 0);
+  }
+
+  bindHover() {
+    const hide = () => {
+      this.bandHover = null;
+      this.sgHover = null;
+      this.tooltip.hidden = true;
+      if (this.levels) this.drawBands();
+    };
+    this.bands.addEventListener('pointermove', (e) => {
+      const n = THIRD_OCTAVE_CENTRES.length;
+      const slot = (this.bw - PLOT_L - PLOT_R) / n;
+      const i = Math.floor((e.offsetX - PLOT_L) / slot);
+      if (!this.levels || i < 0 || i >= n) return hide();
+      const changed = !this.bandHover || this.bandHover.i !== i;
+      this.bandHover = { i, e };
+      if (changed) this.drawBands();
+      this.showBandTip();
+    });
+    this.sgram.addEventListener('pointermove', (e) => {
+      this.sgHover = e;
+      this.showSpectrogramTip();
+    });
+    this.bands.addEventListener('pointerleave', hide);
+    this.sgram.addEventListener('pointerleave', hide);
+  }
+
+  showBandTip() {
+    const { i, e } = this.bandHover;
+    const fc = THIRD_OCTAVE_CENTRES[i];
+    const j = Math.floor(i / 3); // octave index: bars 3j..3j+2 make up octave j
+    const lines = [
+      `<div class="k">${labelHz(fc)} band · ${fmtHz(fc / Math.pow(2, 1 / 6))} – ${fmtHz(fc * Math.pow(2, 1 / 6))}</div>`,
+      tipRow('Now', `${fmtDb(this.levels[i])} dB`),
+      tipRow('5 s average', `${fmtDb(10 * Math.log10(this.thirdPower[i]))} dB`),
+    ];
+    if (j < BALANCE_SHOWN && this.octPower) {
+      const d = 10 * Math.log10(this.octPower[j]) - 10 * Math.log10(this.octPower[OCTAVE_CENTRES.indexOf(500)]);
+      lines.push(tipRow(`In the ${labelHz(OCTAVE_CENTRES[j])} octave`, `${fmtDb(d)} dB vs 500 Hz`));
+    } else if (j >= BALANCE_SHOWN) {
+      lines.push(`<div class="k">${labelHz(OCTAVE_CENTRES[j])} octave (not in the balance)</div>`);
+    }
+    this.showTip(lines, e);
+  }
+
+  showSpectrogramTip() {
+    const sg = this.sg, e = this.sgHover;
+    if (!sg || !e) return;
+    const x = Math.floor(e.offsetX * sg.dpr) - sg.x0;
+    const k = Math.floor(e.offsetY * sg.dpr);
+    if (x < 0 || x >= sg.cols || k < 0 || k >= sg.count) {
+      this.tooltip.hidden = true;
+      return;
+    }
+    const r = (sg.head - k + sg.rows) % sg.rows;
+    const v = sg.vals[r * sg.cols + x];
+    const db = DB_MIN + (v / 255) * (DB_MAX - DB_MIN);
+    const age = sg.times[sg.head] - sg.times[r];
+    this.showTip([
+      `<div class="k">${fmtHz(axisFreq((x + 0.5) / sg.cols))}</div>`,
+      tipRow('Time', k === 0 ? 'newest row' : `${fmtDb(-age)} s`),
+      tipRow('Level', v === 0 ? `≤ ${fmtDb(DB_MIN, 0)} dB` : `${fmtDb(db)} dB`),
+      '<div class="k small">loudest FFT bin in this pixel</div>',
+    ], e);
+  }
+
+  showTip(lines, e) {
+    const tip = this.tooltip;
+    tip.className = 'tooltip';
+    tip.innerHTML = lines.join('');
+    tip.hidden = false;
+    placeTip(tip, e);
+  }
+
   buildBalance() {
-    this.balanceRows = OCTAVE_CENTRES.slice(0, -1).map((f) => {
+    this.balanceRows = OCTAVE_CENTRES.slice(0, BALANCE_SHOWN).map((f) => {
       const row = document.createElement('div');
       row.style.display = 'contents';
       row.className = f === 500 ? 'ref' : '';
@@ -86,11 +226,12 @@ export class SpectrumView {
   clear() {
     this.octPower = null;
     this.thirdPower = null;
-    const c = this.sgram;
-    const ctx = c.getContext('2d');
-    ctx.fillStyle = RAMP[0];
-    ctx.fillRect(0, 0, c.width, c.height);
-    this.drawSpectrogramAxis();
+    this.levels = null;
+    if (this.sg) {
+      this.sg.count = 0;
+      this.repaintHistory();
+      this.drawSpectrogram();
+    }
     if (this.bw) this.bands.getContext('2d').clearRect(0, 0, this.bw, this.bh);
     for (const r of this.balanceRows) {
       r.bar.style.width = '0';
@@ -108,23 +249,42 @@ export class SpectrumView {
   // Same as update() for spectrum data (dB per FFT bin) obtained elsewhere.
   updateData(data, sampleRate, dt) {
     this.data = data;
-    this.drawBands(sampleRate, dt);
-    this.drawSpectrogramColumn(sampleRate);
+    this.levels = thirdOctaveLevels(data, sampleRate);
+    const power = this.levels.map((l) => Math.pow(10, l / 10));
+    const a = 1 - Math.exp(-dt / 5);
+    if (!this.thirdPower) this.thirdPower = power;
+    else this.thirdPower = this.thirdPower.map((p, i) => p + (power[i] - p) * a);
+    this.drawBands();
+    this.addSpectrogramRow(sampleRate);
     this.updateBalance(sampleRate, dt);
+    if (this.bandHover) this.showBandTip();
+    if (this.sgHover) this.showSpectrogramTip();
+  }
+
+  // Frequency labels under a plot, at the octave-balance centres.
+  drawFreqAxis(ctx, l, r, b) {
+    ctx.fillStyle = css('--muted');
+    ctx.strokeStyle = css('--muted');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const f of OCTAVE_CENTRES) {
+      const x = Math.round(l + axisPos(f) * (r - l)) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(x, b);
+      ctx.lineTo(x, b + 4);
+      ctx.stroke();
+      ctx.fillText(labelHz(f), x, b + 12);
+    }
   }
 
   // Live bars, plus a thin line for the ~5 s power average: the same averaging as the
   // octave balance, so the line and the balance agree while the bars move.
-  drawBands(sampleRate, dt) {
-    const levels = thirdOctaveLevels(this.data, sampleRate);
-    const power = levels.map((l) => Math.pow(10, l / 10));
-    const a = 1 - Math.exp(-dt / 5);
-    if (!this.thirdPower) this.thirdPower = power;
-    else this.thirdPower = this.thirdPower.map((p, i) => p + (power[i] - p) * a);
-    if (!this.bw) return;
+  drawBands() {
+    if (!this.bw || !this.levels) return;
+    const levels = this.levels;
     const ctx = this.bands.getContext('2d');
     const w = this.bw, h = this.bh;
-    const l = 34, r = w - 6, t = 6, b = h - 20;
+    const l = PLOT_L, r = w - PLOT_R, t = 6, b = h - AXIS_B;
     ctx.clearRect(0, 0, w, h);
     ctx.font = '11px system-ui, sans-serif';
     ctx.textBaseline = 'middle';
@@ -142,12 +302,11 @@ export class SpectrumView {
     const n = levels.length;
     const slot = (r - l) / n;
     const bar = Math.max(1, slot - 2); // 2px surface gap between bars
-    ctx.textAlign = 'center';
+    const yOf = (db) => b - ((Math.max(DB_MIN, Math.min(DB_MAX, db)) - DB_MIN) / (DB_MAX - DB_MIN)) * (b - t);
     for (let i = 0; i < n; i++) {
       // Darker bars: the centres of the octave-balance bands.
       ctx.fillStyle = css(isOctaveCentre(i) ? '--series-1-dark' : '--series-1');
-      const v = Math.max(DB_MIN, Math.min(DB_MAX, levels[i]));
-      const y = b - ((v - DB_MIN) / (DB_MAX - DB_MIN)) * (b - t);
+      const y = yOf(levels[i]);
       const x = l + i * slot + 1;
       if (b - y > 0.5) {
         ctx.beginPath();
@@ -155,7 +314,10 @@ export class SpectrumView {
         ctx.fill();
       }
     }
-    const yOf = (db) => b - ((Math.max(DB_MIN, Math.min(DB_MAX, db)) - DB_MIN) / (DB_MAX - DB_MIN)) * (b - t);
+    if (this.bandHover) {
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fillRect(l + this.bandHover.i * slot, t, slot, b - t);
+    }
     ctx.strokeStyle = css('--text-2');
     ctx.lineWidth = 1.5;
     ctx.lineJoin = 'round';
@@ -167,71 +329,75 @@ export class SpectrumView {
     });
     ctx.stroke();
     ctx.lineWidth = 1;
-    ctx.fillStyle = css('--muted');
-    for (let i = 0; i < n; i++) {
-      if (isOctaveCentre(i)) ctx.fillText(labelHz(THIRD_OCTAVE_CENTRES[i]), l + i * slot + slot / 2, h - 8);
-    }
+    this.drawFreqAxis(ctx, l, r, b);
   }
 
-  // Frequency labels at the octave-balance centres in a fixed gutter left of the
-  // scrolling image (log rows: y/H = ln(f/SG_MAX) / ln(SG_MIN/SG_MAX)).
-  drawSpectrogramAxis() {
-    const c = this.sgram;
-    if (!c.width || !c.height) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = SG_AXIS, h = c.height / dpr;
-    const ctx = c.getContext('2d');
-    ctx.save();
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = css('--surface');
-    ctx.fillRect(0, 0, w, h);
-    ctx.font = '11px system-ui, sans-serif';
-    ctx.textBaseline = 'middle';
-    ctx.textAlign = 'right';
-    ctx.fillStyle = css('--muted');
-    ctx.strokeStyle = css('--muted');
-    for (const f of OCTAVE_CENTRES) {
-      const y = (Math.log(f / SG_MAX) / Math.log(SG_MIN / SG_MAX)) * h;
-      const yy = Math.round(y) + 0.5;
-      ctx.beginPath();
-      ctx.moveTo(w - 4, yy);
-      ctx.lineTo(w, yy);
-      ctx.stroke();
-      ctx.fillText(labelHz(f), w - 6, Math.max(6, Math.min(h - 6, y)));
-    }
-    ctx.restore();
-  }
-
-  drawSpectrogramColumn(sampleRate) {
-    const c = this.sgram;
-    const ctx = c.getContext('2d');
-    const H = c.height;
-    if (!H) return;
+  // Adds the newest row at the top of the history (each pixel: the loudest FFT bin in
+  // its frequency range) and redraws.
+  addSpectrogramRow(sampleRate) {
+    const sg = this.sg;
+    if (!sg) return;
     const nb = this.data.length;
-    const binHz = sampleRate / 2 / nb;
-    if (!this.rowBins || this.rowBins.length !== H) {
-      // Log-frequency rows: each row maps to a range of FFT bins.
-      this.rowBins = new Int32Array(H + 1);
-      for (let y = 0; y <= H; y++) {
-        const f = SG_MAX * Math.pow(SG_MIN / SG_MAX, y / H);
-        this.rowBins[y] = Math.max(1, Math.min(nb - 1, Math.round(f / binHz)));
-      }
-      this.col = ctx.createImageData(1, H);
+    if (!sg.colBins || sg.sampleRate !== sampleRate || sg.nb !== nb) {
+      const binHz = sampleRate / 2 / nb;
+      sg.colBins = new Int32Array(sg.cols + 1);
+      for (let x = 0; x <= sg.cols; x++) sg.colBins[x] = Math.max(1, Math.min(nb - 1, Math.round(axisFreq(x / sg.cols) / binHz)));
+      sg.sampleRate = sampleRate;
+      sg.nb = nb;
     }
-    const x0 = Math.round(SG_AXIS * (window.devicePixelRatio || 1));
-    if (c.width - x0 > 1) ctx.drawImage(c, x0 + 1, 0, c.width - x0 - 1, H, x0, 0, c.width - x0 - 1, H);
-    const px = this.col.data;
-    for (let y = 0; y < H; y++) {
-      const b0 = this.rowBins[y + 1], b1 = Math.max(b0, this.rowBins[y]);
+    sg.head = (sg.head + 1) % sg.rows;
+    sg.count = Math.min(sg.rows, sg.count + 1);
+    sg.times[sg.head] = performance.now() / 1000;
+    const base = sg.head * sg.cols;
+    const px = sg.row.data;
+    for (let x = 0; x < sg.cols; x++) {
+      const b0 = sg.colBins[x], b1 = Math.max(b0, sg.colBins[x + 1] - 1);
       let v = -Infinity;
       for (let b = b0; b <= b1; b++) if (this.data[b] > v) v = this.data[b];
       const k = Math.max(0, Math.min(255, Math.round(((v - DB_MIN) / (DB_MAX - DB_MIN)) * 255)));
-      px[y * 4] = this.lut[k * 3];
-      px[y * 4 + 1] = this.lut[k * 3 + 1];
-      px[y * 4 + 2] = this.lut[k * 3 + 2];
-      px[y * 4 + 3] = 255;
+      sg.vals[base + x] = k;
+      px[x * 4] = this.lut[k * 3];
+      px[x * 4 + 1] = this.lut[k * 3 + 1];
+      px[x * 4 + 2] = this.lut[k * 3 + 2];
+      px[x * 4 + 3] = 255;
     }
-    ctx.putImageData(this.col, c.width - 1, 0);
+    sg.bctx.drawImage(sg.buf, 0, 1);
+    sg.bctx.putImageData(sg.row, 0, 0);
+    this.drawSpectrogram();
+  }
+
+  // History image plus axes: time down the left (newest at the top), frequency below.
+  drawSpectrogram() {
+    const sg = this.sg;
+    if (!sg) return;
+    const c = this.sgram;
+    const ctx = c.getContext('2d');
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.drawImage(sg.buf, sg.x0, 0);
+    ctx.setTransform(sg.dpr, 0, 0, sg.dpr, 0, 0);
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.lineWidth = 1;
+    const plotB = sg.rows / sg.dpr;
+    this.drawFreqAxis(ctx, sg.x0 / sg.dpr, (sg.x0 + sg.cols) / sg.dpr, plotB);
+    // Time labels every 5 s, placed by each row's arrival time.
+    ctx.textAlign = 'right';
+    ctx.fillText('now', PLOT_L - 4, 6);
+    if (!sg.count) return;
+    const newest = sg.times[sg.head];
+    let next = 5;
+    for (let k = 1; k < sg.count; k++) {
+      const age = newest - sg.times[(sg.head - k + sg.rows) % sg.rows];
+      if (age < next) continue;
+      const y = Math.round(k / sg.dpr) + 0.5;
+      if (y > plotB - 6) break;
+      ctx.beginPath();
+      ctx.moveTo(PLOT_L - 3, y);
+      ctx.lineTo(PLOT_L, y);
+      ctx.stroke();
+      ctx.fillText(`−${next} s`, PLOT_L - 5, y);
+      next = Math.floor(age / 5) * 5 + 5;
+    }
   }
 
   updateBalance(sampleRate, dt) {
