@@ -1,7 +1,7 @@
 // Stereo by octave band: one dot per band, placed by balance (left/right) and L/R
 // correlation (mono at the top, out of phase at the bottom); dot size follows the band's
 // level and its shade the frequency (dark = bass, light = treble), with the band named
-// beside it. Fed from frame.bands (src/dsp/stereobands.js).
+// beside it. Bands below JUDGE_DB are outlined and left out of the summary line. Fed from frame.bands (src/dsp/stereobands.js).
 
 import { css, fmtDb } from './format.js';
 
@@ -10,6 +10,9 @@ const SHADES = ['#184f95', '#2a78d6', '#5598e7', '#86b6ef', '#cde2fb'];
 const shadeOf = (i) => SHADES[Math.min(SHADES.length - 1, Math.floor(i / 2))];
 const LEVEL_RANGE = 40; // dB below the loudest band at which a dot reaches minimum size
 const HIDE_BELOW = 50; // dB below the loudest band: too quiet to place reliably
+// Below this a band is mostly the source's own noise (e.g. two mic capsules' independent
+// hiss reads as near-zero or negative correlation): drawn as an outline, not judged.
+const JUDGE_DB = -70;
 const R_MIN = 4, R_MAX = 10;
 const BAL_TICK = 6; // dB, gridlines either side of centre
 
@@ -49,7 +52,8 @@ export class StereoBandsView {
     el.innerHTML =
       '<span>31 Hz</span>' +
       SHADES.map((c) => `<span class="sw" style="background:${c}"></span>`).join('') +
-      '<span>16k</span><span class="sep">dot size = band level</span>';
+      '<span>16k</span><span class="sep">dot size = band level</span>' +
+      `<span class="sep"><span class="ring"></span> below ${fmtDb(JUDGE_DB, 0)} dBFS, not judged</span>`;
     this.canvas.parentElement.after(el);
   }
 
@@ -148,11 +152,17 @@ export class StereoBandsView {
     for (const d of this.dots) {
       ctx.beginPath();
       ctx.arc(d.x, d.y, d.r, 0, 2 * Math.PI);
-      ctx.fillStyle = shadeOf(d.band.i);
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = css('--surface');
-      ctx.stroke();
+      if (d.band.levelDb >= JUDGE_DB) {
+        ctx.fillStyle = shadeOf(d.band.i);
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = css('--surface');
+        ctx.stroke();
+      } else {
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = shadeOf(d.band.i);
+        ctx.stroke();
+      }
     }
     // Band names beside the dots, loudest first, skipping any that would overlap.
     ctx.lineWidth = 1;
@@ -175,9 +185,10 @@ export class StereoBandsView {
   // One line under the plot: what stands out, judged on bands within 30 dB of the loudest.
   renderNote() {
     if (!this.note) return;
-    const main = this.placed().filter((b) => b.rel > -30);
+    const placed = this.placed();
+    const main = placed.filter((b) => b.rel > -30 && b.levelDb >= JUDGE_DB);
     if (!main.length) {
-      this.note.textContent = '--';
+      this.note.textContent = placed.length ? `Too quiet to judge: every band is below ${fmtDb(JUDGE_DB, 0)} dBFS` : '--';
       return;
     }
     const parts = [];
@@ -217,6 +228,7 @@ export class StereoBandsView {
       row('Correlation', b.correlation.toFixed(2)),
       row('Balance', fmtBalance(b.balanceDb)),
       row('Level', `${fmtDb(b.levelDb)} dBFS`),
+      b.levelDb < JUDGE_DB ? `<div class="k">Too quiet to judge: mostly noise</div>` : '',
     ].join('');
     tip.hidden = false;
     const tw = tip.offsetWidth;
