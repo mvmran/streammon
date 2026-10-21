@@ -100,6 +100,8 @@ async function main() {
       return false;
     });
     check(spectrumDrawn, 'dashboard spectrum is drawn from the offscreen analyser');
+    const stereoNote = await dash.textContent('#stereo-bands-note');
+    check(stereoNote && stereoNote !== '--', `dashboard stereo-by-band panel reports (${stereoNote})`);
     const { dpr, sizes } = await dash.evaluate(() => ({
       dpr: devicePixelRatio,
       sizes: ['bands', 'sgram'].map((id) => {
@@ -107,7 +109,7 @@ async function main() {
         return [c.height, Math.round(c.getBoundingClientRect().height), Number(c.style.height.replace('px', ''))];
       }),
     }));
-    check(sizes.every(([px, css, set]) => set <= 220 && css <= set + 1 && px <= Math.ceil(set * dpr) + 1), `spectrum canvases keep their size at ${dpr}x scaling (${JSON.stringify(sizes)})`);
+    check(sizes.every(([px, css, set]) => set <= 304 && css <= set + 1 && px <= Math.ceil(set * dpr) + 1), `spectrum canvases keep their size at ${dpr}x scaling (${JSON.stringify(sizes)})`);
     await dash.screenshot({ path: join(OUT, 'extension-dashboard.png'), fullPage: true });
 
     await panel.click('#tp-tile');

@@ -1,0 +1,226 @@
+// Stereo by octave band: one dot per band, placed by balance (left/right) and L/R
+// correlation (mono at the top, out of phase at the bottom); dot size follows the band's
+// level and its shade the frequency (dark = bass, light = treble), with the band named
+// beside it. Fed from frame.bands (src/dsp/stereobands.js).
+
+import { css, fmtDb } from './format.js';
+
+// Ordinal one-hue ramp, validated for the dark surface: five shades, two octaves each.
+const SHADES = ['#184f95', '#2a78d6', '#5598e7', '#86b6ef', '#cde2fb'];
+const shadeOf = (i) => SHADES[Math.min(SHADES.length - 1, Math.floor(i / 2))];
+const LEVEL_RANGE = 40; // dB below the loudest band at which a dot reaches minimum size
+const HIDE_BELOW = 50; // dB below the loudest band: too quiet to place reliably
+const R_MIN = 4, R_MAX = 10;
+const BAL_TICK = 6; // dB, gridlines either side of centre
+
+const labelHz = (f) => (f >= 1000 ? `${Math.round(f / 100) / 10}k` : String(Math.round(f)));
+// Balance in dB (R over L) to -1…+1: the share of energy, (R² − L²) / (R² + L²).
+const balancePos = (db) => {
+  const g = Math.pow(10, db / 10);
+  return (g - 1) / (g + 1);
+};
+const fmtBalance = (db) => (Math.abs(db) < 0.05 ? 'centre' : `${db < 0 ? 'L' : 'R'} ${Math.abs(db).toFixed(1)} dB`);
+
+export class StereoBandsView {
+  constructor(canvas, note) {
+    this.canvas = canvas;
+    this.note = note;
+    this.tooltip = document.getElementById('tooltip');
+    this.cssHeight = Number(canvas.getAttribute('height')) || 220;
+    this.bands = null;
+    this.dots = []; // drawn dots, for hover: { x, y, r, band }
+    this.hover = null; // pointer event
+    this.addLegend();
+    new ResizeObserver(() => this.resize()).observe(canvas.parentElement);
+    canvas.addEventListener('pointermove', (e) => {
+      this.hover = e;
+      this.showTip();
+    });
+    canvas.addEventListener('pointerleave', () => {
+      this.hover = null;
+      this.tooltip.hidden = true;
+    });
+    this.resize();
+  }
+
+  addLegend() {
+    const el = document.createElement('div');
+    el.className = 'stereo-legend small';
+    el.innerHTML =
+      '<span>31 Hz</span>' +
+      SHADES.map((c) => `<span class="sw" style="background:${c}"></span>`).join('') +
+      '<span>16k</span><span class="sep">dot size = band level</span>';
+    this.canvas.parentElement.after(el);
+  }
+
+  resize() {
+    const dpr = window.devicePixelRatio || 1;
+    const w = this.canvas.parentElement.clientWidth;
+    if (!w) return;
+    this.w = w;
+    this.h = this.cssHeight;
+    this.canvas.style.height = `${this.h}px`;
+    this.canvas.width = Math.round(w * dpr);
+    this.canvas.height = Math.round(this.h * dpr);
+    this.canvas.getContext('2d').setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.draw();
+  }
+
+  render(bands) {
+    this.bands = bands || null;
+    this.draw();
+    this.renderNote();
+    if (this.hover) this.showTip();
+  }
+
+  clear() {
+    this.render(null);
+    if (this.note) this.note.textContent = '--';
+  }
+
+  // Bands loud enough to place, with their position and size.
+  placed() {
+    const bands = this.bands;
+    if (!bands) return [];
+    const valid = bands.map((b, i) => ({ ...b, i })).filter((b) => b.correlation !== null);
+    if (!valid.length) return [];
+    const top = Math.max(...valid.map((b) => b.levelDb));
+    return valid
+      .filter((b) => b.levelDb > top - HIDE_BELOW)
+      .map((b) => ({ ...b, rel: b.levelDb - top }));
+  }
+
+  draw() {
+    if (!this.w) return;
+    const ctx = this.canvas.getContext('2d');
+    const w = this.w, h = this.h;
+    const p = { l: 28, r: w - 10, t: 10, b: h - 22 };
+    const cx = (p.l + p.r) / 2;
+    const xOf = (db) => cx + balancePos(db) * ((p.r - p.l) / 2);
+    const yOf = (c) => p.t + ((1 - c) / 2) * (p.b - p.t);
+    ctx.clearRect(0, 0, w, h);
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+
+    // Out-of-phase half, then the grid.
+    ctx.fillStyle = 'rgba(255,255,255,0.035)';
+    ctx.fillRect(p.l, yOf(0), p.r - p.l, p.b - yOf(0));
+    ctx.strokeStyle = css('--grid');
+    ctx.lineWidth = 1;
+    ctx.fillStyle = css('--muted');
+    ctx.textAlign = 'right';
+    for (const c of [1, 0.5, 0, -0.5, -1]) {
+      const y = Math.round(yOf(c)) + 0.5;
+      ctx.strokeStyle = css(c === 0 ? '--axis' : '--grid');
+      ctx.beginPath();
+      ctx.moveTo(p.l, y);
+      ctx.lineTo(p.r, y);
+      ctx.stroke();
+      if (c === 1 || c === 0 || c === -1) ctx.fillText(c === 1 ? '+1' : c === -1 ? '−1' : '0', p.l - 5, y);
+    }
+    for (const db of [-BAL_TICK, 0, BAL_TICK]) {
+      const x = Math.round(xOf(db)) + 0.5;
+      ctx.strokeStyle = css(db === 0 ? '--axis' : '--grid');
+      ctx.beginPath();
+      ctx.moveTo(x, p.t);
+      ctx.lineTo(x, p.b);
+      ctx.stroke();
+    }
+    ctx.textAlign = 'center';
+    const ly = p.b + 12;
+    ctx.fillText('L', p.l + 4, ly);
+    ctx.fillText(`${BAL_TICK} dB`, xOf(-BAL_TICK), ly);
+    ctx.fillText('C', cx, ly);
+    ctx.fillText(`${BAL_TICK} dB`, xOf(BAL_TICK), ly);
+    ctx.fillText('R', p.r - 4, ly);
+    ctx.textAlign = 'left';
+    ctx.fillText('mono', p.l + 4, p.t + 8);
+    ctx.fillText('out of phase', p.l + 4, p.b - 8);
+
+    // Dots, quietest first so the loudest sit on top, each with a 2px surface ring.
+    const placed = this.placed().sort((a, b) => a.rel - b.rel);
+    this.dots = placed.map((b) => ({
+      x: xOf(b.balanceDb),
+      y: yOf(b.correlation),
+      r: R_MIN + (R_MAX - R_MIN) * Math.max(0, Math.min(1, (b.rel + LEVEL_RANGE) / LEVEL_RANGE)),
+      band: b,
+    }));
+    for (const d of this.dots) {
+      ctx.beginPath();
+      ctx.arc(d.x, d.y, d.r, 0, 2 * Math.PI);
+      ctx.fillStyle = shadeOf(d.band.i);
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = css('--surface');
+      ctx.stroke();
+    }
+    // Band names beside the dots, loudest first, skipping any that would overlap.
+    ctx.lineWidth = 1;
+    ctx.fillStyle = css('--text-2');
+    ctx.font = '10px system-ui, sans-serif';
+    const boxes = [];
+    for (const d of [...this.dots].reverse()) {
+      const text = labelHz(d.band.fc);
+      const tw = ctx.measureText(text).width;
+      let x = d.x + d.r + 3;
+      if (x + tw > w - 2) x = d.x - d.r - 3 - tw;
+      const box = { x0: x - 1, x1: x + tw + 1, y0: d.y - 6, y1: d.y + 6 };
+      if (boxes.some((o) => box.x0 < o.x1 && box.x1 > o.x0 && box.y0 < o.y1 && box.y1 > o.y0)) continue;
+      boxes.push(box);
+      ctx.textAlign = 'left';
+      ctx.fillText(text, x, d.y);
+    }
+  }
+
+  // One line under the plot: what stands out, judged on bands within 30 dB of the loudest.
+  renderNote() {
+    if (!this.note) return;
+    const main = this.placed().filter((b) => b.rel > -30);
+    if (!main.length) {
+      this.note.textContent = '--';
+      return;
+    }
+    const parts = [];
+    if (main.every((b) => b.correlation >= 0.99 && Math.abs(b.balanceDb) < 0.5)) {
+      parts.push('All bands mono and centred');
+    } else {
+      const widest = main.reduce((a, b) => (b.correlation < a.correlation ? b : a));
+      parts.push(`Widest: ${labelHz(widest.fc)} (corr ${widest.correlation.toFixed(2)})`);
+      const off = main.reduce((a, b) => (Math.abs(b.balanceDb) > Math.abs(a.balanceDb) ? b : a));
+      if (Math.abs(off.balanceDb) >= 1) parts.push(`most off-centre: ${labelHz(off.fc)}, ${fmtBalance(off.balanceDb)}`);
+      const flipped = main.filter((b) => b.correlation < 0).map((b) => labelHz(b.fc));
+      if (flipped.length) parts.push(`out of phase: ${flipped.join(', ')}`);
+    }
+    this.note.textContent = parts.join(' · ');
+  }
+
+  showTip() {
+    const e = this.hover;
+    let best = null, bestD = Infinity;
+    for (const d of this.dots) {
+      const dist = Math.hypot(d.x - e.offsetX, d.y - e.offsetY);
+      if (dist < Math.max(12, d.r + 4) && dist < bestD) {
+        best = d;
+        bestD = dist;
+      }
+    }
+    const tip = this.tooltip;
+    if (!best) {
+      tip.hidden = true;
+      return;
+    }
+    const b = best.band;
+    const row = (k, v) => `<div class="row"><span class="k">${k}</span><span class="val">${v}</span></div>`;
+    tip.className = 'tooltip';
+    tip.innerHTML = [
+      `<div class="k">${labelHz(b.fc)} octave</div>`,
+      row('Correlation', b.correlation.toFixed(2)),
+      row('Balance', fmtBalance(b.balanceDb)),
+      row('Level', `${fmtDb(b.levelDb)} dBFS`),
+    ].join('');
+    tip.hidden = false;
+    const tw = tip.offsetWidth;
+    tip.style.left = `${e.clientX + 14 + tw > window.innerWidth ? e.clientX - 14 - tw : e.clientX + 14}px`;
+    tip.style.top = `${Math.max(4, e.clientY - 20)}px`;
+  }
+}

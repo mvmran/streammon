@@ -126,7 +126,7 @@ async function main() {
         return [c.height, Math.round(c.getBoundingClientRect().height), Number(c.style.height.replace('px', ''))];
       }),
     }));
-    check(sizes.every(([px, css, set]) => set <= 220 && css <= set + 1 && px <= Math.ceil(set * dpr) + 1), `spectrum canvases keep their size at ${dpr}x scaling (${JSON.stringify(sizes)})`);
+    check(sizes.every(([px, css, set]) => set <= 304 && css <= set + 1 && px <= Math.ceil(set * dpr) + 1), `spectrum canvases keep their size at ${dpr}x scaling (${JSON.stringify(sizes)})`);
     const hoverText = async (id, fx, fy) => {
       const box = await page.locator(`#${id}`).boundingBox();
       await page.mouse.move(box.x + box.width * fx, box.y + box.height * fy);
@@ -138,6 +138,8 @@ async function main() {
     const sgTip = await hoverText('sgram', 0.5, 0.05);
     check(/FFT bin/.test(sgTip) && /dB/.test(sgTip), `hovering the spectrogram shows a reading (${sgTip})`);
     await page.mouse.move(0, 0);
+    const stereoNote = await page.textContent('#stereo-bands-note');
+    check(stereoNote && stereoNote !== '--', `stereo-by-band panel reports (${stereoNote})`);
     await page.screenshot({ path: join(OUT, 'device-mode.png'), fullPage: true });
     await page.click('#stop');
     check(!(await page.isDisabled('#export-csv')), 'CSV export available after stop');

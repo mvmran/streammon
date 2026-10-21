@@ -113,6 +113,14 @@ A status is held for 2 s.
 
 **Isolation.** `src/dsp/hum-isolate.js` is an STFT comb mask (bins under 0.4 Hz, ±0.75 Hz per harmonic) for the "Listen to isolated hum" button.
 
+### Stereo by band (`src/dsp/stereobands.js`)
+
+Display only: no alert or status depends on it. Each octave band (31 Hz – 16 kHz) is filtered by two cascaded RBJ band-pass biquads, identical for L and R. Over a 1 s window it gives correlation, balance (R over L, in dB) and level.
+- `StreamAnalyzer` computes it only when `onFrame` is set, so the file-analysis worker skips it. The result goes out in `frame.bands`.
+- It costs about 1% of one core.
+- `src/ui/stereo-view.js` draws it (balance across, correlation up), created by `MetersView` when `#stereo-bands` exists.
+- Frequency is shown by five validated shades of one blue, two octaves per shade, with each band named beside its dot. Ten shades of one hue fail the distinguishability check.
+
 ### Browser side
 
 - **`src/audio/engine.js`** builds the graph: source → input gain → worklet (muted output to the destination, which keeps it pulled) plus an AnalyserNode. The AnalyserNode is for the spectrum display only; all measurements come from raw samples.

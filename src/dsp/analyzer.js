@@ -3,7 +3,8 @@
 // Worker (file analysis) and the Node test harness.
 //
 // Output:
-//   onFrame(frame)   every 100 ms of audio: meters for the display
+//   onFrame(frame)   every 100 ms of audio: meters for the display (with per-octave
+//                    stereo in frame.bands, computed only when onFrame is set)
 //   onSecond(row)    every 1 s of audio: one CSV row with every metric plus clip status
 //   onHum(result)    every 0.5 s: mains hum measurement (see hum.js), with audibility
 //   onEvent(event)   clip status changes: { type: 'start' | 'end', status, t, ... };
@@ -13,6 +14,7 @@ import { LoudnessMeter } from './loudness.js';
 import { TruePeakChannel } from './truepeak.js';
 import { ClipDetector, CLEAN, LIMITED, CLIPPING } from './clipdetect.js';
 import { StereoMeter } from './stereo.js';
+import { StereoBands } from './stereobands.js';
 import { CrestMeter, toDb } from './crest.js';
 import { HumDetector, PRESENT as HUM_PRESENT, NOT_DETECTED as HUM_NOT_DETECTED, MASKED as HUM_MASKED } from './hum.js';
 
@@ -36,6 +38,7 @@ export class StreamAnalyzer {
     this.tp = [new TruePeakChannel(), new TruePeakChannel()];
     this.clip = new ClipDetector(sampleRate, clipOptions);
     this.stereo = new StereoMeter(10); // 1 s
+    this.bandStereo = onFrame ? new StereoBands(sampleRate, 10) : null; // display only
     this.crest = new CrestMeter(30); // 3 s
     this.reset();
     this.emitHumConfig(); // invalid settings fall back with a logged warning
@@ -46,6 +49,7 @@ export class StreamAnalyzer {
     for (const t of this.tp) t.reset();
     this.clip.reset();
     this.stereo.reset();
+    if (this.bandStereo) this.bandStereo.reset();
     this.crest.reset();
     this.hum.reset();
     this.lastHum = null;
@@ -81,6 +85,7 @@ export class StreamAnalyzer {
       this.loudness.process(l, r, k);
       const tp = Math.max(this.tp[0].process(l, k), this.tp[1].process(r, k));
       this.hum.process(l, r, k);
+      if (this.bandStereo) this.bandStereo.process(l, r, k);
       this.clip.processChannel(0, l, k);
       this.clip.processChannel(1, r, k);
       this.clip.endBlock(k);
@@ -114,6 +119,7 @@ export class StreamAnalyzer {
     this.frames++;
     this.n = 0;
     this.stereo.push(f.ll, f.rr, f.lr);
+    if (this.bandStereo) this.bandStereo.endFrame();
     this.crest.push(f.peak, f.ll + f.rr, 2 * this.frameLen);
     if (f.peak > this.s.peak) this.s.peak = f.peak;
     if (f.tp > this.s.tp) this.s.tp = f.tp;
@@ -137,6 +143,7 @@ export class StreamAnalyzer {
         correlation: stereo.correlation,
         sideMidDb: stereo.sideMidDb,
         mono: stereo.mono,
+        bands: this.bandStereo.current,
         status: this.status,
       });
     }

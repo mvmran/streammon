@@ -4,6 +4,7 @@
 
 import { ALERT_LABELS } from '../dsp/alerts.js';
 import { TimeChart } from './charts.js';
+import { StereoBandsView } from './stereo-view.js';
 import { fmtDb, fmtDuration, fmtClock, escapeHtml } from './format.js';
 
 const STATUS_ICON = { CLEAN: '✓', LIMITED: '▲', CLIPPING: '✖', IDLE: '' };
@@ -33,6 +34,8 @@ export class MetersView {
   constructor(getConfig, doc = document) {
     this.getConfig = getConfig;
     this.el = Object.fromEntries(Object.entries(IDS).map(([k, id]) => [k, doc.getElementById(id)]));
+    const sb = doc.getElementById('stereo-bands');
+    this.stereoBands = sb ? new StereoBandsView(sb, doc.getElementById('stereo-bands-note')) : null;
   }
 
   renderStatus(status) {
@@ -63,6 +66,7 @@ export class MetersView {
     if (el.mono) el.mono.classList.toggle('mono', !!f.mono);
     setText(el.corr, f.correlation === null ? '--' : f.correlation.toFixed(3));
     setText(el.sidemid, f.sideMidDb === null ? '--' : `${fmtDb(f.sideMidDb)} dB`);
+    if (this.stereoBands) this.stereoBands.render(f.bands);
     this.renderStatus(f.status);
   }
 
@@ -84,6 +88,7 @@ export class MetersView {
     setChip(this.el.tpChip, '', '');
     if (this.el.tpTile) this.el.tpTile.classList.remove('alerting');
     if (this.el.mono) this.el.mono.classList.remove('mono');
+    if (this.stereoBands) this.stereoBands.clear();
     this.renderStatus('IDLE');
     setText(this.el.statusDetail, detail);
   }

@@ -22,7 +22,9 @@ export const HELP = {
   spectrum:
     'How much energy is in each third of an octave, from deep bass (left) to treble (right). The bars show this instant; the thin line is the average over about 5 seconds, the same averaging as the octave balance, so the two agree. The darker bars are the octave-balance frequencies; each octave there covers its darker bar and the bar either side. Hover a bar for its reading. Useful for spotting boomy lows, harshness or missing highs. Display only: it does not affect any measurement.',
   spectrogram:
-    'The spectrum over the last 20 seconds or so, scrolling downwards: newest at the top, frequency left to right on the same scale as the spectrum bars above, brighter means louder. Hover for a reading; each pixel is the loudest single FFT bin in its range, so it reads lower than the bars. Content stopping around 16 kHz is normal for YouTube audio.',
+    'The spectrum over the last 30 seconds or so, scrolling downwards: newest at the top, frequency left to right on the same scale as the spectrum bars above, brighter means louder. Hover for a reading; each pixel is the loudest single FFT bin in its range, so it reads lower than the bars. Content stopping around 16 kHz is normal for YouTube audio.',
+  'stereo-bands':
+    'How the stereo image differs across the frequency range: one dot per octave, darker for bass and lighter for treble, with its name beside it. Up and down is correlation: at the top the band is the same in both channels (mono); around 0 it is wide; below 0 it is out of phase and cancels on a mono speaker or phone. Left and right is balance: a dot off-centre means that band is louder on one side. Bigger dots are louder bands. Averaged over 1 second. Display only: it does not affect any measurement.',
   balance:
     'Average level of each octave compared with the 500 Hz band, over about 5 seconds. It is normal for the top octaves to be 10–20 dB below 500 Hz. Look for one band sticking out, or for changes during the service.',
   log:

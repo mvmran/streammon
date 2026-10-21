@@ -26,6 +26,7 @@ const SHARED = [
   'src/ui/session.js',
   'src/ui/settings.js',
   'src/ui/spectrum.js',
+  'src/ui/stereo-view.js',
   'css/app.css',
 ];
 
