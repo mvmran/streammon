@@ -8,6 +8,9 @@ const DB_MIN = -100;
 const DB_MAX = -10;
 const SG_MIN = 30; // spectrogram frequency range (Hz)
 const SG_MAX = 20000;
+const SG_AXIS = 34; // CSS px left of the spectrogram for the frequency labels
+// The octave-balance centres (31 Hz … 16 kHz) are every third 1/3-octave band from index 1.
+const isOctaveCentre = (i) => i % 3 === 1;
 
 // Sequential single-hue ramp (dark surface -> blue -> near white) for the spectrogram.
 const RAMP = ['#1a1a19', '#104281', '#1c5cab', '#2a78d6', '#5598e7', '#86b6ef', '#cde2fb', '#ffffff'];
@@ -59,6 +62,7 @@ export class SpectrumView {
       ctx.fillRect(0, 0, c.width, c.height);
       if (old) ctx.putImageData(old, c.width - old.width, 0);
       this.rowBins = null;
+      this.drawSpectrogramAxis();
     } else {
       c.width = Math.round(w * dpr);
       c.height = Math.round(h * dpr);
@@ -86,6 +90,7 @@ export class SpectrumView {
     const ctx = c.getContext('2d');
     ctx.fillStyle = RAMP[0];
     ctx.fillRect(0, 0, c.width, c.height);
+    this.drawSpectrogramAxis();
     if (this.bw) this.bands.getContext('2d').clearRect(0, 0, this.bw, this.bh);
     for (const r of this.balanceRows) {
       r.bar.style.width = '0';
@@ -137,9 +142,10 @@ export class SpectrumView {
     const n = levels.length;
     const slot = (r - l) / n;
     const bar = Math.max(1, slot - 2); // 2px surface gap between bars
-    ctx.fillStyle = css('--series-1');
     ctx.textAlign = 'center';
     for (let i = 0; i < n; i++) {
+      // Darker bars: the centres of the octave-balance bands.
+      ctx.fillStyle = css(isOctaveCentre(i) ? '--series-1-dark' : '--series-1');
       const v = Math.max(DB_MIN, Math.min(DB_MAX, levels[i]));
       const y = b - ((v - DB_MIN) / (DB_MAX - DB_MIN)) * (b - t);
       const x = l + i * slot + 1;
@@ -162,10 +168,38 @@ export class SpectrumView {
     ctx.stroke();
     ctx.lineWidth = 1;
     ctx.fillStyle = css('--muted');
-    for (let i = 1; i < n; i += 3) {
-      ctx.fillText(labelHz(THIRD_OCTAVE_CENTRES[i]), l + i * slot + slot / 2, h - 8);
+    for (let i = 0; i < n; i++) {
+      if (isOctaveCentre(i)) ctx.fillText(labelHz(THIRD_OCTAVE_CENTRES[i]), l + i * slot + slot / 2, h - 8);
     }
-    ctx.fillStyle = css('--series-1');
+  }
+
+  // Frequency labels at the octave-balance centres in a fixed gutter left of the
+  // scrolling image (log rows: y/H = ln(f/SG_MAX) / ln(SG_MIN/SG_MAX)).
+  drawSpectrogramAxis() {
+    const c = this.sgram;
+    if (!c.width || !c.height) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = SG_AXIS, h = c.height / dpr;
+    const ctx = c.getContext('2d');
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = css('--surface');
+    ctx.fillRect(0, 0, w, h);
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = css('--muted');
+    ctx.strokeStyle = css('--muted');
+    for (const f of OCTAVE_CENTRES) {
+      const y = (Math.log(f / SG_MAX) / Math.log(SG_MIN / SG_MAX)) * h;
+      const yy = Math.round(y) + 0.5;
+      ctx.beginPath();
+      ctx.moveTo(w - 4, yy);
+      ctx.lineTo(w, yy);
+      ctx.stroke();
+      ctx.fillText(labelHz(f), w - 6, Math.max(6, Math.min(h - 6, y)));
+    }
+    ctx.restore();
   }
 
   drawSpectrogramColumn(sampleRate) {
@@ -184,7 +218,8 @@ export class SpectrumView {
       }
       this.col = ctx.createImageData(1, H);
     }
-    ctx.drawImage(c, -1, 0);
+    const x0 = Math.round(SG_AXIS * (window.devicePixelRatio || 1));
+    if (c.width - x0 > 1) ctx.drawImage(c, x0 + 1, 0, c.width - x0 - 1, H, x0, 0, c.width - x0 - 1, H);
     const px = this.col.data;
     for (let y = 0; y < H; y++) {
       const b0 = this.rowBins[y + 1], b1 = Math.max(b0, this.rowBins[y]);

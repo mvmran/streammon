@@ -10,6 +10,7 @@
   --axis: #383835;
   --border: rgba(255, 255, 255, 0.1);
   --series-1: #3987e5;
+  --series-1-dark: #2160b8; /* octave-centre bars in the spectrum */
   --series-2: #d95926;
   --good: #0ca30c;
   --warning: #fab219;
