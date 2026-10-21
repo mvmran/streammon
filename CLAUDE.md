@@ -120,6 +120,8 @@ Display only: no alert or status depends on it. Each octave band (31 Hz – 16 k
 - It costs about 1% of one core.
 - `src/ui/stereo-view.js` draws it (balance across, correlation up), created by `MetersView` when `#stereo-bands` exists.
 - Frequency is shown by five validated shades of one blue, two octaves per shade, with each band named beside its dot. Ten shades of one hue fail the distinguishability check.
+- Bands below −70 dBFS (`JUDGE_DB`) are drawn as outlines and left out of the summary line. Without this, a quiet room reads as wide or out of phase, because two mic capsules hiss independently.
+- The dashed "healthy mix" zone (±3 dB balance, down to correlation +0.2: `ZONE_BAL_DB` / `ZONE_CORR`) is a rule of thumb. Retune it against the real stereo stream once that works; the feed is currently mono by mistake.
 
 ### Browser side
 
@@ -127,6 +129,13 @@ Display only: no alert or status depends on it. Each octave band (31 Hz – 16 k
 - **Sample rates:** the AudioContext is created at the source's rate. `sniffSampleRate` parses WAV/FLAC/MP4/MP3 headers before decoding so `decodeAudioData` doesn't resample, because resampling smears plateaus.
 - **File mode:** `analyseBuffer` sends 10 s chunks to the Worker and waits for an `ack` before the next (flow control). Playback runs through the same worklet. The worklet is reset on every seek, so `app.js` adds `state.playOffset` to row times.
 - **`src/ui/app.js`** is the web app's controller. Meter rendering, alert banners and the history/peak chart set-ups live in `src/ui/meters.js`, shared with the extension; its elements are looked up by id and are all optional. `bindMeterResets` makes the true-peak (`#tp-tile`) and integrated (`#int-tile`) cards click-to-reset (`StreamAnalyzer.resetPeaks()` / `resetIntegrated()`, via the worklet port, or a `reset` message to the extension's offscreen document). Alerts (`AlertMonitor`) run only for live sources. Wall-clock time is `startWall + t` from the audio clock, not when a message arrives.
+- **Spectrum area (`src/ui/spectrum.js`):**
+  - The ⅓-octave bars and the vertical spectrogram under them share one log frequency axis (the outer edges of the first and last band) and the same plot margins, so each bar sits over its own stretch of the spectrogram.
+  - The spectrogram keeps one byte per pixel (the colour index) plus each row's arrival time, which is what its hover reads.
+  - It scrolls one row per UI tick (10/s), so the history length is set by the canvas height.
+- **Column heights are balanced by hand.** The `#sgram` height attribute in `index.html` and `extension/dashboard.html` is chosen so the spectrum panel ends level with the right-hand column (Stereo by band + Octave balance).
+  - After changing either column, re-measure in a browser and adjust that height.
+  - Also update the size limit in the "spectrum canvases keep their size" checks in `test/e2e.mjs` and `test/e2e-extension.mjs`.
 - **Hover help:** every meter tile and panel heading carries `data-help="<key>"`. The volunteer-facing text for each key lives only in `HELP` in `src/ui/help.js`, shared by all three pages. `test/help.test.js` fails if a card has no key or a key has no text.
 - **Styling:**
   - The UI is dark-only.
