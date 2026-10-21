@@ -34,6 +34,7 @@ export class SpectrumView {
     this.lut = buildLut();
     this.data = null;
     this.octPower = null; // smoothed linear power per octave
+    this.thirdPower = null; // smoothed linear power per 1/3 octave (the average line)
     // The height attribute is the CSS height. Read it once: setting canvas.height to the
     // device-pixel size rewrites the attribute, so re-reading it would compound the
     // display scale on every resize (the canvas grows until Chrome can't draw it).
@@ -80,6 +81,7 @@ export class SpectrumView {
 
   clear() {
     this.octPower = null;
+    this.thirdPower = null;
     const c = this.sgram;
     const ctx = c.getContext('2d');
     ctx.fillStyle = RAMP[0];
@@ -101,14 +103,20 @@ export class SpectrumView {
   // Same as update() for spectrum data (dB per FFT bin) obtained elsewhere.
   updateData(data, sampleRate, dt) {
     this.data = data;
-    this.drawBands(sampleRate);
+    this.drawBands(sampleRate, dt);
     this.drawSpectrogramColumn(sampleRate);
     this.updateBalance(sampleRate, dt);
   }
 
-  drawBands(sampleRate) {
-    if (!this.bw) return;
+  // Live bars, plus a thin line for the ~5 s power average: the same averaging as the
+  // octave balance, so the line and the balance agree while the bars move.
+  drawBands(sampleRate, dt) {
     const levels = thirdOctaveLevels(this.data, sampleRate);
+    const power = levels.map((l) => Math.pow(10, l / 10));
+    const a = 1 - Math.exp(-dt / 5);
+    if (!this.thirdPower) this.thirdPower = power;
+    else this.thirdPower = this.thirdPower.map((p, i) => p + (power[i] - p) * a);
+    if (!this.bw) return;
     const ctx = this.bands.getContext('2d');
     const w = this.bw, h = this.bh;
     const l = 34, r = w - 6, t = 6, b = h - 20;
@@ -141,6 +149,18 @@ export class SpectrumView {
         ctx.fill();
       }
     }
+    const yOf = (db) => b - ((Math.max(DB_MIN, Math.min(DB_MAX, db)) - DB_MIN) / (DB_MAX - DB_MIN)) * (b - t);
+    ctx.strokeStyle = css('--text-2');
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    this.thirdPower.forEach((p, i) => {
+      const y = yOf(10 * Math.log10(p));
+      if (i === 0) ctx.moveTo(l + slot / 2, y);
+      else ctx.lineTo(l + i * slot + slot / 2, y);
+    });
+    ctx.stroke();
+    ctx.lineWidth = 1;
     ctx.fillStyle = css('--muted');
     for (let i = 1; i < n; i += 3) {
       ctx.fillText(labelHz(THIRD_OCTAVE_CENTRES[i]), l + i * slot + slot / 2, h - 8);

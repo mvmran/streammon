@@ -20,7 +20,7 @@ export const HELP = {
   peaks:
     'The highest sample (blue) and true peak (orange) in each second. Natural audio makes a jagged line. A flat line of peaks sitting at one level means something is clipping or limiting. Dashed lines: the true-peak alert limit and the ceiling.',
   spectrum:
-    'How much energy is in each third of an octave, from deep bass (left) to treble (right). Useful for spotting boomy lows, harshness or missing highs. Display only: it does not affect any measurement.',
+    'How much energy is in each third of an octave, from deep bass (left) to treble (right). The bars show this instant; the thin line is the average over about 5 seconds, the same averaging as the octave balance, so the two agree. Useful for spotting boomy lows, harshness or missing highs. Display only: it does not affect any measurement.',
   spectrogram:
     'The spectrum over time, scrolling to the left: low frequencies at the bottom, high at the top, brighter means louder. Content stopping around 16 kHz is normal for YouTube audio.',
   balance:
