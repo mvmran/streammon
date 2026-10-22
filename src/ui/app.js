@@ -86,6 +86,7 @@ state.alertCfg = setupSettings($('settings'), $('settings-btn'), (cfg) => {
   // Re-applying hum settings restarts the hum measurement, so only when they changed.
   if (humChanged) engine.setHumOptions(humOptionsFrom(cfg));
   humView.renderMains();
+  spectrum.setSpectrogramFloor(cfg.display.spectrogramFloorDb);
   renderAlerts();
   // A loaded file was analysed with the old mains frequency: analyse it again.
   if (mainsChanged && state.mode === 'file' && state.file) handleFile(state.file.source);
@@ -100,6 +101,7 @@ recorder.onDiskError = (e, name) => {
   showError(`Recording to ${name} stopped: ${describeError(e)}. The session is still kept here; export it with CSV.`);
 };
 const spectrum = new SpectrumView({ bands: $('bands'), sgram: $('sgram'), balance: $('balance') });
+spectrum.setSpectrogramFloor(state.alertCfg.display.spectrogramFloorDb);
 const panMap = new PanMapView($('pan-map'));
 let panL = null, panR = null; // reused spectrum buffers
 

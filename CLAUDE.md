@@ -149,6 +149,8 @@ Each octave band (31 Hz – 16 kHz) is filtered by two cascaded RBJ band-pass bi
   - The ⅓-octave bars and the vertical spectrogram under them share one log frequency axis (the outer edges of the first and last band) and the same plot margins, so each bar sits over its own stretch of the spectrogram.
   - The spectrogram keeps one byte per pixel (the colour index) plus each row's arrival time, which is what its hover reads.
   - It scrolls one row per UI tick (10/s), so the history length is set by the canvas height.
+  - Its colour scale runs from a floor (default −100 dB, `display.spectrogramFloorDb` in the settings, `setSpectrogramFloor`) to −10 dB; changing the floor re-maps the stored history. The spectrum bars' axis stays at −100.
+  - The 5 s average line carries the octave balance readings (dB vs 500 Hz) at each octave centre, the same values the Octave balance panel shows (`balanceDb`).
 - **Column heights are balanced by hand.** In `index.html` and `extension/dashboard.html`:
   - the `#sgram` height attribute is chosen so the spectrum panel ends level with the right-hand column (Stereo by band + Pan map);
   - the `#peaks` height is chosen so the peak chart matches the loudness history (which also draws the stereo correlation, on a right-hand scale).

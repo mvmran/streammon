@@ -32,6 +32,7 @@ const state = {
 if ($('settings')) {
   state.cfg = setupSettings($('settings'), $('settings-btn'), (cfg) => {
     state.cfg = cfg;
+    if (spectrum) spectrum.setSpectrogramFloor(cfg.display.spectrogramFloorDb);
     redraw();
   });
   if (location.hash === '#settings') $('settings-btn').click();
@@ -39,6 +40,7 @@ if ($('settings')) {
 window.addEventListener('storage', () => {
   state.cfg = loadAlertConfig();
   humView.renderMains();
+  if (spectrum) spectrum.setSpectrogramFloor(state.cfg.display.spectrogramFloorDb);
 });
 
 const meters = new MetersView(() => state.cfg);
@@ -47,6 +49,7 @@ const charts = [];
 if ($('history')) charts.push(createHistoryChart($('history'), xFormat, { compact }));
 if ($('peaks')) charts.push(createPeakChart($('peaks'), xFormat, () => state.cfg));
 const spectrum = $('bands') ? new SpectrumView({ bands: $('bands'), sgram: $('sgram'), balance: $('balance') }) : null;
+if (spectrum) spectrum.setSpectrogramFloor(state.cfg.display.spectrogramFloorDb);
 const panMap = $('pan-map') ? new PanMapView($('pan-map')) : null;
 const log = new EventLog($('log-body'), $('log-empty'));
 const humView = new HumView(() => state.cfg);

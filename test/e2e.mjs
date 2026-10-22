@@ -209,6 +209,12 @@ async function main() {
     await page.waitForTimeout(200);
     const afterEsc = await page.evaluate(() => JSON.parse(localStorage.getItem('streammon.alerts.v1')));
     check(afterEsc.truePeak.dbtp === -2, `Esc closes the settings without saving (true peak ${afterEsc.truePeak.dbtp})`);
+    await page.click('#settings-btn');
+    await page.fill('input[name="display.spectrogramFloorDb"]', '-80');
+    await page.click('dialog button[value="save"]');
+    await page.waitForTimeout(200);
+    const floor = await page.evaluate(() => JSON.parse(localStorage.getItem('streammon.alerts.v1')).display.spectrogramFloorDb);
+    check(floor === -80, `spectrogram floor saved (${floor} dB)`);
 
     check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(' | ')}` : ''}`);
   } catch (e) {

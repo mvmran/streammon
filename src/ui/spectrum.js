@@ -56,6 +56,7 @@ export class SpectrumView {
     this.balanceEl = balance;
     this.tooltip = document.getElementById('tooltip');
     this.lut = buildLut();
+    this.sgFloor = DB_MIN; // spectrogram colour floor (dB), set from the display settings
     this.data = null;
     this.levels = null; // latest 1/3-octave levels (dB)
     this.octPower = null; // smoothed linear power per octave
@@ -119,6 +120,27 @@ export class SpectrumView {
     }
     this.sg = sg;
     this.repaintHistory();
+  }
+
+  // Spectrogram colour floor (dB): quieter shows as background. The history on screen is
+  // re-mapped to the new scale (what was below the old floor stays background).
+  setSpectrogramFloor(db) {
+    const floor = Math.max(-140, Math.min(DB_MAX - 30, Number.isFinite(db) ? db : DB_MIN));
+    if (floor === this.sgFloor) return;
+    const sg = this.sg;
+    if (sg && sg.count) {
+      const map = new Uint8Array(256);
+      for (let k = 1; k < 256; k++) {
+        const v = this.sgFloor + (k / 255) * (DB_MAX - this.sgFloor);
+        map[k] = Math.max(0, Math.min(255, Math.round(((v - floor) / (DB_MAX - floor)) * 255)));
+      }
+      for (let i = 0; i < sg.vals.length; i++) sg.vals[i] = map[sg.vals[i]];
+    }
+    this.sgFloor = floor;
+    if (sg) {
+      this.repaintHistory();
+      this.drawSpectrogram();
+    }
   }
 
   // Redraws the whole history image from the stored values.
@@ -194,12 +216,12 @@ export class SpectrumView {
     }
     const r = (sg.head - k + sg.rows) % sg.rows;
     const v = sg.vals[r * sg.cols + x];
-    const db = DB_MIN + (v / 255) * (DB_MAX - DB_MIN);
+    const db = this.sgFloor + (v / 255) * (DB_MAX - this.sgFloor);
     const age = sg.times[sg.head] - sg.times[r];
     this.showTip([
       `<div class="k">${fmtHz(axisFreq((x + 0.5) / sg.cols))}</div>`,
       tipRow('Time', k === 0 ? 'newest row' : `${fmtDb(-age)} s`),
-      tipRow('Level', v === 0 ? `≤ ${fmtDb(DB_MIN, 0)} dB` : `${fmtDb(db)} dB`),
+      tipRow('Level', v === 0 ? `≤ ${fmtDb(this.sgFloor, 0)} dB` : `${fmtDb(db)} dB`),
       '<div class="k small">loudest FFT bin in this pixel</div>',
     ], e);
   }
@@ -356,7 +378,7 @@ export class SpectrumView {
       const b0 = sg.colBins[x], b1 = Math.max(b0, sg.colBins[x + 1] - 1);
       let v = -Infinity;
       for (let b = b0; b <= b1; b++) if (this.data[b] > v) v = this.data[b];
-      const k = Math.max(0, Math.min(255, Math.round(((v - DB_MIN) / (DB_MAX - DB_MIN)) * 255)));
+      const k = Math.max(0, Math.min(255, Math.round(((v - this.sgFloor) / (DB_MAX - this.sgFloor)) * 255)));
       sg.vals[base + x] = k;
       px[x * 4] = this.lut[k * 3];
       px[x * 4 + 1] = this.lut[k * 3 + 1];

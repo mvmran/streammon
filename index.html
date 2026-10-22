@@ -260,6 +260,10 @@
           <label><input type="checkbox" name="stereo.mono" /> Also alert when the feed is mono</label>
         </fieldset>
         <fieldset>
+          <legend>Display</legend>
+          <label>Spectrogram floor <input type="number" name="display.spectrogramFloorDb" min="-140" max="-40" step="5" /> dB <span class="muted small">(quieter shows as background; default −100)</span></label>
+        </fieldset>
+        <fieldset>
           <legend>Sound</legend>
           <label><input type="checkbox" name="sound" /> Beep when an alert is raised <span class="muted small">(off by default: this runs during services)</span></label>
         </fieldset>
