@@ -225,6 +225,7 @@ export class SpectrumView {
 
   clear() {
     this.octPower = null;
+    this.balanceDb = null;
     this.thirdPower = null;
     this.levels = null;
     if (this.sg) {
@@ -328,6 +329,7 @@ export class SpectrumView {
       else ctx.lineTo(l + i * slot + slot / 2, y);
     });
     ctx.stroke();
+    this.drawBalanceLabels(ctx, l, slot, t, yOf);
     ctx.lineWidth = 1;
     this.drawFreqAxis(ctx, l, r, b);
   }
@@ -400,6 +402,34 @@ export class SpectrumView {
     }
   }
 
+  // The octave-balance readings (dB vs 500 Hz) on the average line at each octave centre
+  // (the darker bars), so the shape and the numbers read at one glance.
+  drawBalanceLabels(ctx, l, slot, t, yOf) {
+    if (!this.balanceDb) return;
+    ctx.font = '600 10px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    this.balanceDb.forEach((d, j) => {
+      if (!Number.isFinite(d)) return;
+      const i = 3 * j + 1; // the octave's centre 1/3-octave band
+      const x = l + i * slot + slot / 2;
+      const y = yOf(10 * Math.log10(this.thirdPower[i]));
+      ctx.fillStyle = css('--text-2');
+      ctx.beginPath();
+      ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      const text = fmtDb(d);
+      const tw = ctx.measureText(text).width;
+      const ly = y - 12 < t + 7 ? y + 12 : y - 12; // above the point, or below near the top
+      ctx.fillStyle = 'rgba(20, 20, 19, 0.82)';
+      ctx.beginPath();
+      ctx.roundRect(x - tw / 2 - 3, ly - 7, tw + 6, 14, 3);
+      ctx.fill();
+      ctx.fillStyle = css('--text');
+      ctx.fillText(text, x, ly);
+    });
+  }
+
   updateBalance(sampleRate, dt) {
     const levels = bandLevels(this.data, sampleRate, OCTAVE_CENTRES, 1);
     const power = levels.map((l) => Math.pow(10, l / 10));
@@ -411,8 +441,10 @@ export class SpectrumView {
     if (this.balanceAge < 0.5) return;
     this.balanceAge = 0;
     const ref = 10 * Math.log10(this.octPower[OCTAVE_CENTRES.indexOf(500)]);
+    // Kept for the labels on the spectrum's average line, so both show the same numbers.
+    this.balanceDb = this.balanceRows.map((r, i) => 10 * Math.log10(this.octPower[i]) - ref);
     this.balanceRows.forEach((r, i) => {
-      const d = 10 * Math.log10(this.octPower[i]) - ref;
+      const d = this.balanceDb[i];
       if (!Number.isFinite(d)) return;
       const c = Math.max(-24, Math.min(24, d));
       const pct = (Math.abs(c) / 24) * 50;
