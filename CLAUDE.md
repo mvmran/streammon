@@ -134,6 +134,9 @@ Each octave band (31 Hz – 16 kHz) is filtered by two cascaded RBJ band-pass bi
 **Pan map.** `src/ui/pan-map.js` places each FFT bin of separate L and R `AnalyserNode` spectra by (R² − L²)/(R² + L²) in ⅓-octave rows, averaged over about 1 s.
 - `engine.analyserL` / `analyserR` sit behind a `ChannelSplitterNode`.
 - In the extension, the `spectrum` message also carries `left` and `right`.
+- Cells are drawn hard-edged (no image smoothing); brightness is relative to the loudest cell over 45 dB.
+- Rows (⅓ octaves) below −75 dBFS (`ROW_FLOOR_DB`, from `STEREO_RULES.judgeDb`) stay dark, so mic hiss doesn't read as a wide image. Row levels are summed AnalyserNode bin powers plus 9 dB (`BIN_SUM_TO_DBFS`, measured with noise).
+- The edge columns hold everything 19 dB or more louder on one side; they're labelled `L ≥19` / `R ≥19`, not "only".
 
 ### Browser side
 

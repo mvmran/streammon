@@ -24,7 +24,7 @@ export const HELP = {
   spectrogram:
     'The spectrum over the last 50 seconds or so, scrolling downwards: newest at the top, frequency left to right on the same scale as the spectrum bars above, brighter means louder. Hover for a reading; each pixel is the loudest single FFT bin in its range, so it reads lower than the bars. Content stopping around 16 kHz is normal for YouTube audio.',
   'pan-map':
-    'Where the sound sits left to right (across) at each frequency (up), averaged over about a second. Brighter means louder. A centred vocal and bass make a bright column in the middle; instruments panned to one side light up off-centre. On a mono feed everything is in the centre column. The edges mean one channel only.',
+    'Where the sound sits left to right (across) at each frequency (up), averaged over about a second. Brighter means louder. A centred vocal and bass make a bright column in the middle; instruments panned to one side light up off-centre. On a mono feed everything is in the centre column. The edge columns hold anything 19 dB or more louder on that side. Bands below about −75 dBFS (mostly microphone hiss) are left dark.',
   'stereo-bands':
     'One dot per octave, darker for bass and lighter for treble. Up and down is L/R correlation: +1 is mono, 0 is wide, below 0 is out of phase (cancels on a mono speaker). Left and right is balance. Bigger dots are louder bands; outlined dots are too quiet to judge. The dashed half-oval is roughly where a healthy stereo mix sits. Averaged over 1 second, so a band can dip below 0 for a moment: normal in recordings made with spaced microphones, bass notes especially. Only a band that stays down there is a problem (the Stereo card then says PHASE PROBLEM).',
   balance:

@@ -4,6 +4,7 @@
 // axis. Fed from separate left and right AnalyserNode spectra; display only.
 
 import { THIRD_OCTAVE_CENTRES } from '../dsp/bands.js';
+import { STEREO_RULES } from '../dsp/stereobands.js';
 import { css, fmtDb } from './format.js';
 
 const COLS = 41; // pan cells, odd so the centre has its own column
@@ -13,7 +14,14 @@ const F_LO = THIRD_OCTAVE_CENTRES[0] / EDGE;
 const F_HI = THIRD_OCTAVE_CENTRES[ROWS - 1] * EDGE;
 const RANGE_DB = 45; // shown below the loudest cell (less hides diffuse orchestral bass)
 const SMOOTH_S = 1; // time constant of the energy average
-const BAL_MARKS = [3, 6, 10, 20];
+const BAL_MARKS = [3, 6, 10]; // 20 dB would fall inside the edge column
+// Summed AnalyserNode bin powers (Blackman window, 1/N scaling, magnitude smoothing 0.5)
+// read about 9 dB below the band's true level: measured with noise at 100 Hz, 1 kHz, 8 kHz.
+const BIN_SUM_TO_DBFS = 9;
+// Rows (1/3 octaves) quieter than this are mostly the source's own noise, e.g. two mic
+// capsules' independent hiss, which would spread across the map as a fake wide image.
+// Stereo by band's -70 dBFS per octave is about -75 dBFS per 1/3 octave.
+const ROW_FLOOR_DB = STEREO_RULES.judgeDb - 5;
 // Same ramp as the spectrogram (dark surface -> blue -> near white).
 const RAMP = ['#1a1a19', '#104281', '#1c5cab', '#2a78d6', '#5598e7', '#86b6ef', '#cde2fb', '#ffffff'];
 
@@ -25,7 +33,11 @@ const balancePos = (db) => {
 };
 // Pan position (-1…1) back to dB, R over L.
 const posDb = (u) => 10 * Math.log10((1 + u) / Math.max(1e-6, 1 - u));
-const fmtBalance = (db) => (Math.abs(db) < 0.25 ? 'centre' : !Number.isFinite(db) || Math.abs(db) > 40 ? (db < 0 ? 'left only' : 'right only') : `${db < 0 ? 'L' : 'R'} ${Math.abs(db).toFixed(1)} dB`);
+// The edge columns collect everything at least this much louder on one side (19 dB).
+const EDGE_DB = Math.round(-posDb(-1 + 1 / (COLS - 1)));
+const fmtBalance = (db) => (Math.abs(db) < 0.25 ? 'centre' : `${db < 0 ? 'L' : 'R'} ${Math.abs(db).toFixed(1)} dB`);
+// Band level (dBFS, per channel) of a row from its summed cell energies.
+const rowDb = (sum) => (sum > 0 ? 10 * Math.log10(sum / 2) + BIN_SUM_TO_DBFS : -Infinity);
 
 function buildLut() {
   const rgb = RAMP.map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
@@ -50,6 +62,7 @@ export class PanMapView {
     this.img = document.createElement('canvas');
     this.img.width = COLS;
     this.img.height = ROWS;
+    this.imgData = this.img.getContext('2d').createImageData(COLS, ROWS);
     this.hover = null;
     new ResizeObserver(() => this.resize()).observe(canvas.parentElement);
     canvas.addEventListener('pointermove', (e) => {
@@ -116,20 +129,29 @@ export class PanMapView {
     const ctx = this.canvas.getContext('2d');
     const w = this.w, h = this.h, p = this.plot;
     ctx.clearRect(0, 0, w, h);
+    let tooQuiet = false;
     ctx.font = '11px system-ui, sans-serif';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = RAMP[0];
     ctx.fillRect(p.l, p.t, p.r - p.l, p.b - p.t);
     if (this.grid) {
+      // Brightness is relative to the loudest cell among the rows loud enough to judge;
+      // quieter rows stay dark.
+      const judged = [];
       let top = 0;
-      for (const v of this.grid) if (v > top) top = v;
+      for (let row = 0; row < ROWS; row++) {
+        let sum = 0;
+        for (let col = 0; col < COLS; col++) sum += this.grid[row * COLS + col];
+        judged[row] = rowDb(sum) >= ROW_FLOOR_DB;
+        if (judged[row]) for (let col = 0; col < COLS; col++) top = Math.max(top, this.grid[row * COLS + col]);
+      }
       const ictx = this.img.getContext('2d');
-      const data = ictx.createImageData(COLS, ROWS);
+      const data = this.imgData;
       const topDb = 10 * Math.log10(top || 1e-30);
       for (let row = 0; row < ROWS; row++) {
         for (let col = 0; col < COLS; col++) {
           const v = this.grid[row * COLS + col];
-          const t = v > 0 ? (10 * Math.log10(v) - (topDb - RANGE_DB)) / RANGE_DB : 0;
+          const t = judged[row] && v > 0 ? (10 * Math.log10(v) - (topDb - RANGE_DB)) / RANGE_DB : 0;
           const k = Math.max(0, Math.min(255, Math.round(t * 255)));
           const o = ((ROWS - 1 - row) * COLS + col) * 4;
           data.data[o] = this.lut[k * 3];
@@ -149,6 +171,7 @@ export class PanMapView {
       ctx.clip();
       ctx.drawImage(this.img, p.l - cw / 2, p.t, p.r - p.l + cw, p.b - p.t);
       ctx.restore();
+      tooQuiet = !judged.some(Boolean);
     }
     // Axes: frequency up the left, balance along the bottom (as on stereo by band).
     ctx.strokeStyle = css('--axis');
@@ -185,14 +208,22 @@ export class PanMapView {
       }
     }
     label('C', cx, 'center');
-    label('L only', p.l, 'left');
-    label('R only', p.r, 'right');
+    label(`L ≥${EDGE_DB}`, p.l, 'left');
+    label(`R ≥${EDGE_DB}`, p.r, 'right');
     for (const db of BAL_MARKS) {
       label(String(db), xOf(-db), 'center');
       label(String(db), xOf(db), 'center');
     }
     ctx.textAlign = 'center';
     ctx.fillText('balance: dB louder on that side', cx, p.b + 27);
+    if (tooQuiet) {
+      const text = `Too quiet to place: every band is below ${fmtDb(ROW_FLOOR_DB, 0)} dBFS`;
+      const tw = ctx.measureText(text).width, my = (p.t + p.b) / 2;
+      ctx.fillStyle = RAMP[0];
+      ctx.fillRect(cx - tw / 2 - 6, my - 9, tw + 12, 18);
+      ctx.fillStyle = css('--muted');
+      ctx.fillText(text, cx, my);
+    }
   }
 
   showTip() {
@@ -206,12 +237,18 @@ export class PanMapView {
     const row = Math.min(ROWS - 1, Math.floor(((p.b - e.offsetY) / (p.b - p.t)) * ROWS));
     const fc = THIRD_OCTAVE_CENTRES[row];
     const v = this.grid[row * COLS + col];
+    let sum = 0;
+    for (let c = 0; c < COLS; c++) sum += this.grid[row * COLS + c];
+    const band = rowDb(sum);
+    const side = col === 0 ? 'L' : col === COLS - 1 ? 'R' : null;
     const r = (k, val) => `<div class="row"><span class="k">${k}</span><span class="val">${val}</span></div>`;
     tip.className = 'tooltip';
     tip.innerHTML = [
       `<div class="k">${fmtHz(fc / EDGE)} – ${fmtHz(fc * EDGE)}</div>`,
-      r('Position', fmtBalance(posDb((col / (COLS - 1)) * 2 - 1))),
-      r('Level', v > 0 ? `${fmtDb(10 * Math.log10(v))} dB` : '--'),
+      r('Position', side ? `${side} ${EDGE_DB} dB or more` : fmtBalance(posDb((col / (COLS - 1)) * 2 - 1))),
+      r('Cell', v > 0 ? `${fmtDb(10 * Math.log10(v))} dB` : '--'),
+      r('Band level', Number.isFinite(band) ? `${fmtDb(band)} dBFS` : '--'),
+      band < ROW_FLOOR_DB ? `<div class="k">Too quiet to place: mostly noise</div>` : '',
     ].join('');
     tip.hidden = false;
     const tw = tip.offsetWidth;
