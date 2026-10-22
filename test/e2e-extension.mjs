@@ -113,7 +113,7 @@ async function main() {
         return [c.height, Math.round(c.getBoundingClientRect().height), Number(c.style.height.replace('px', ''))];
       }),
     }));
-    check(sizes.every(([px, css, set]) => set <= 531 && css <= set + 1 && px <= Math.ceil(set * dpr) + 1), `spectrum canvases keep their size at ${dpr}x scaling (${JSON.stringify(sizes)})`);
+    check(sizes.every(([px, css, set]) => set <= 481 && css <= set + 1 && px <= Math.ceil(set * dpr) + 1), `spectrum canvases keep their size at ${dpr}x scaling (${JSON.stringify(sizes)})`);
     await dash.screenshot({ path: join(OUT, 'extension-dashboard.png'), fullPage: true });
 
     await panel.click('#tp-tile');
