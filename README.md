@@ -136,14 +136,17 @@ The text under the status says how it was detected:
   heavily limited audio is around 10–11 dB and clipped audio often under 9 dB.
 - **Stereo status** (the Stereo card): MONO (left and right identical), STEREO OK, WIDE,
   UNBALANCED (whole mix more than 3 dB louder on one side) or PHASE PROBLEM (a loud band
-  out of phase, which cancels on phones and mono speakers). A phase problem for 5 s and
+  from 125 Hz up stays out of phase over 3 s, so it cancels on phones and mono speakers).
+  A phase problem for 5 s and
   imbalance for 15 s raise alerts; an alert for a mono feed can be switched on in
   *Alerts & settings*. Our feeds are currently mono because of a configuration problem;
   the aim is full stereo.
-- **Correlation strip** under the loudness history: stereo correlation over time.
+- **Correlation** in the loudness history: stereo correlation over time, on the right-hand
+  scale in the lower half.
 - **Stereo by band**: one dot per octave, placed by balance (left/right) and correlation
   (+1 mono at the top, below 0 out of phase). The dashed half-oval is roughly where a
-  healthy stereo mix sits. A band below 0 cancels on mono speakers and phones.
+  healthy stereo mix sits. A band that stays below 0 cancels on mono speakers and phones;
+  brief dips are normal with spaced microphones, bass notes especially.
 - **Pan map**: where the sound sits left to right at each frequency, brighter for louder.
   It shows what is panned where, but not phase (Stereo by band does).
 - **Spectrum, spectrogram and octave balance**: hover the spectrum bars or the spectrogram

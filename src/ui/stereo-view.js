@@ -253,8 +253,6 @@ export class StereoBandsView {
       parts.push(`Widest: ${labelHz(widest.fc)} (corr ${widest.correlation.toFixed(2)})`);
       const off = main.reduce((a, b) => (Math.abs(b.balanceDb) > Math.abs(a.balanceDb) ? b : a));
       if (Math.abs(off.balanceDb) >= 1) parts.push(`most off-centre: ${labelHz(off.fc)}, ${fmtBalance(off.balanceDb)}`);
-      const flipped = main.filter((b) => b.correlation < 0).map((b) => labelHz(b.fc));
-      if (flipped.length) parts.push(`out of phase: ${flipped.join(', ')}`);
     }
     this.note.textContent = parts.join(' · ');
   }

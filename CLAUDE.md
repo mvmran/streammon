@@ -125,6 +125,7 @@ Each octave band (31 Hz – 16 kHz) is filtered by two cascaded RBJ band-pass bi
 
 **Stereo status.** `StereoStatus` (same file) turns the bands into one word: MONO / STEREO OK / WIDE / UNBALANCED / PHASE PROBLEM.
 - The thresholds are in `STEREO_RULES`, rules of thumb like the zone.
+- It is judged on a 3 s window (`StereoBands.over(windowFrames)`), not the 1 s display window, and phase only on bands from 125 Hz up (`phaseMinHz`). Checked on public-domain orchestral and quartet recordings and a CC studio album: with the 1 s window and all bands, a spaced-mic orchestra recording read PHASE PROBLEM 42% of the time (bass notes swing in and out of phase note by note); with these rules it's 4%, never long enough to alert, and the same recordings with one channel inverted still read PHASE PROBLEM 95–100% of the time.
 - A worse word is held for 3 s.
 - It goes out as `frame.stereoStatus` / `stereoDetail` and in rows, plus the CSV columns `stereo_status` and `balance_db`.
 - It drives the Stereo card's badge and the alerts `stereoPhase` (5 s), `stereoBalance` (15 s) and `stereoMono` (opt-in), set in the alert config's `stereo` section.

@@ -14,7 +14,7 @@ import { LoudnessMeter } from './loudness.js';
 import { TruePeakChannel } from './truepeak.js';
 import { ClipDetector, CLEAN, LIMITED, CLIPPING } from './clipdetect.js';
 import { StereoMeter } from './stereo.js';
-import { StereoBands, StereoStatus, MONO } from './stereobands.js';
+import { StereoBands, StereoStatus, STEREO_RULES, MONO } from './stereobands.js';
 import { CrestMeter, toDb } from './crest.js';
 import { HumDetector, PRESENT as HUM_PRESENT, NOT_DETECTED as HUM_NOT_DETECTED, MASKED as HUM_MASKED } from './hum.js';
 
@@ -40,7 +40,7 @@ export class StreamAnalyzer {
     this.stereo = new StereoMeter(10); // 1 s
     // Per-band stereo and the one-word stereo status: only computed when frames are
     // displayed (live and playback), not in the faster-than-real-time file analysis.
-    this.bandStereo = onFrame ? new StereoBands(sampleRate, 10) : null;
+    this.bandStereo = onFrame ? new StereoBands(sampleRate, 10, STEREO_RULES.windowFrames) : null;
     this.stereoStatus = onFrame ? new StereoStatus() : null;
     this.crest = new CrestMeter(30); // 3 s
     this.reset();
@@ -138,7 +138,8 @@ export class StreamAnalyzer {
     if (this.onFrame) {
       const stereo = this.stereo.current;
       const bands = this.bandStereo.current;
-      this.lastStereo = this.stereoStatus.update(bands, stereo.mono, this.stereo.balanceDb);
+      const judged = this.bandStereo.over(STEREO_RULES.windowFrames);
+      this.lastStereo = this.stereoStatus.update(judged, stereo.mono, this.stereo.balanceDb);
       this.onFrame({
         t: this.elapsed,
         momentary: m,

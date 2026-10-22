@@ -1,5 +1,5 @@
-// Stereo image per octave band: L/R correlation, balance and level, over a sliding
-// window of 100 ms frames. Each band is a pair of cascaded RBJ band-pass biquads
+// Stereo image per octave band: L/R correlation, balance and level, over sliding
+// windows of 100 ms frames (1 s for display, longer for the status). Each band is a pair of cascaded RBJ band-pass biquads
 // (one-octave bandwidth), identical for L and R so correlation and balance are exact for
 // whatever the filter passes. StereoStatus turns the bands into one word (and the stereo
 // alerts in alerts.js use it).
@@ -21,6 +21,11 @@ export const STEREO_RULES = {
   judgeRangeDb: 30, // and bands more than this below the loudest band
   phaseCorr: -0.3, // a judged band below this correlation...
   phaseRangeDb: 20, // ...within this of the loudest band is a phase problem
+  // Bands below this aren't judged for phase. With spaced mics, bass notes swing in and out
+  // of phase note by note; phone and laptop speakers (where mono matters) don't reproduce
+  // them; and a wiring fault also shows in the bands above.
+  phaseMinHz: 100,
+  windowFrames: 30, // judged over 3 s, so a note or two below the line doesn't count
   unbalancedDb: 3, // whole-mix level difference between the sides
   wideMedianCorr: 0.25, // median correlation of the judged bands below this is very wide
   holdFrames: 30, // a worse status is held for 3 s so the word doesn't flicker
@@ -34,13 +39,15 @@ function bandpass(fc, sampleRate) {
 }
 
 export class StereoBands {
-  // frames: window length in 100 ms frames (10 = 1 s, like the overall stereo meter).
-  constructor(sampleRate, frames = 10, centres = OCTAVE_CENTRES) {
+  // frames: window length in 100 ms frames (10 = 1 s, like the overall stereo meter) for
+  // `current`; keep: frames held for longer windows (`over`).
+  constructor(sampleRate, frames = 10, keep = frames, centres = OCTAVE_CENTRES) {
     this.centres = centres;
     // Bands too close to Nyquist are left out (null in the output).
     this.coef = centres.map((fc) => (fc < 0.45 * sampleRate ? bandpass(fc, sampleRate) : null));
     this.frames = frames;
-    this.ring = new Float64Array(frames * centres.length * 4); // per frame and band: LL, RR, LR, n
+    this.keep = Math.max(frames, keep);
+    this.ring = new Float64Array(this.keep * centres.length * 4); // per frame and band: LL, RR, LR, n
     this.reset();
   }
 
@@ -96,19 +103,25 @@ export class StereoBands {
   // Closes the current 100 ms frame into the window.
   endFrame() {
     this.ring.set(this.acc, this.pos * this.acc.length);
-    this.pos = (this.pos + 1) % this.frames;
+    this.pos = (this.pos + 1) % this.keep;
     this.acc.fill(0);
   }
 
   // Per band over the window: { fc, correlation, balanceDb (R over L), levelDb (RMS dBFS,
   // both channels) }, with nulls for silent or unavailable bands.
   get current() {
+    return this.over(this.frames);
+  }
+
+  // The same over the last `frames` frames (at most `keep`).
+  over(frames) {
     const nb = this.centres.length;
+    const count = Math.min(frames, this.keep);
     return this.centres.map((fc, bi) => {
       if (!this.coef[bi]) return { fc, correlation: null, balanceDb: null, levelDb: null };
       let ll = 0, rr = 0, lr = 0, n = 0;
-      for (let f = 0; f < this.frames; f++) {
-        const o = (f * nb + bi) * 4;
+      for (let k = 1; k <= count; k++) {
+        const o = (((this.pos - k + this.keep) % this.keep) * nb + bi) * 4;
         ll += this.ring[o];
         rr += this.ring[o + 1];
         lr += this.ring[o + 2];
@@ -124,8 +137,8 @@ export class StereoBands {
 const SEVERITY = { [STEREO_OK]: 0, [WIDE]: 1, [UNBALANCED]: 2, [PHASE_PROBLEM]: 3 };
 const labelHz = (f) => (f >= 1000 ? `${Math.round(f / 100) / 10}k` : String(Math.round(f)));
 
-// One word for volunteers, from the per-band readings (StereoBands.current), whether the
-// channels are identical, and the whole-mix balance. Call once per 100 ms frame.
+// One word for volunteers, from the per-band readings (StereoBands.over(windowFrames)),
+// whether the channels are identical, and the whole-mix balance. Call once per 100 ms frame.
 export class StereoStatus {
   constructor(rules = STEREO_RULES) {
     this.rules = rules;
@@ -161,7 +174,7 @@ export class StereoStatus {
     if (!valid.length) return { status: null, detail: 'Too quiet to judge' };
     const top = Math.max(...valid.map((b) => b.levelDb));
     const judged = valid.filter((b) => b.levelDb >= top - r.judgeRangeDb);
-    const flipped = judged.filter((b) => b.correlation < r.phaseCorr && b.levelDb >= top - r.phaseRangeDb);
+    const flipped = judged.filter((b) => b.fc >= r.phaseMinHz && b.correlation < r.phaseCorr && b.levelDb >= top - r.phaseRangeDb);
     if (flipped.length) return { status: PHASE_PROBLEM, detail: `${flipped.map((b) => labelHz(b.fc)).join(', ')} out of phase: cancels in mono` };
     if (balanceDb !== null && Math.abs(balanceDb) > r.unbalancedDb) {
       return { status: UNBALANCED, detail: `Mix ${Math.abs(balanceDb).toFixed(1)} dB louder on the ${balanceDb < 0 ? 'left' : 'right'}` };

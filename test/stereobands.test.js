@@ -108,6 +108,37 @@ test('stereo status words', () => {
   // A negative band 25 dB below the loudest is not a phase problem.
   const lv = [-20, -20, -20, -20, -20, -20, -45, -20, -20, -20];
   assert.equal(s().update(bands([1, 1, 0.9, 0.8, 0.7, 0.6, -0.6, 0.5, 0.4, 0.3], { levelDb: lv }), false, 0).status, STEREO_OK);
+  // Bass bands are not judged for phase (spaced mics swing them in and out note by note).
+  assert.equal(s().update(bands([-0.9, -0.9, 0.9, 0.8, 0.7, 0.6, 0.5, 0.5, 0.4, 0.3]), false, 0).status, STEREO_OK);
+});
+
+// Noise at -20 dBFS, the same on both sides, with the right channel inverted from `from`
+// to `to` seconds.
+function flipped(seconds, from, to) {
+  const n = SR * seconds;
+  const L = new Float32Array(n), R = new Float32Array(n);
+  let seed = 3;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 2 ** 32) * 2 - 1;
+  for (let i = 0; i < n; i++) {
+    L[i] = 0.17 * rnd();
+    R[i] = i >= from * SR && i < to * SR ? -L[i] : L[i];
+  }
+  return [L, R];
+}
+
+test('phase is judged over 3 s: a 1 s flip is not a phase problem, a lasting one is', () => {
+  const statuses = (L, R) => {
+    const out = [];
+    new StreamAnalyzer(SR, { onFrame: (f) => out.push(f.stereoStatus) }).process(L, R);
+    return out;
+  };
+  const brief = statuses(...flipped(8, 4, 5));
+  assert.ok(!brief.includes(PHASE_PROBLEM), 'a 1 s flip passes');
+  const lasting = statuses(...flipped(10, 4, 10));
+  assert.ok(!lasting.slice(0, 41).includes(PHASE_PROBLEM));
+  assert.equal(lasting.at(-1), PHASE_PROBLEM);
+  const first = lasting.indexOf(PHASE_PROBLEM) / 10 - 4;
+  assert.ok(first > 1 && first < 3, `flagged ${first} s into the flip`);
 });
 
 test('a worse stereo status is held for 3 s', () => {

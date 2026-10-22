@@ -14,7 +14,7 @@ export const HELP = {
   crest:
     'How far the peaks stand above the average level, over the last 3 seconds. Natural speech and music: about 12–20 dB. Heavily limited audio: about 10–11 dB. Clipped audio: often under 9 dB.',
   stereo:
-    'One word for the stereo picture. MONO: left and right identical. STEREO OK: balanced, with positive correlation. WIDE: most of the sound has little in common between the sides. UNBALANCED: the whole mix is more than 3 dB louder on one side. PHASE PROBLEM: a loud band is out of phase and cancels on mono speakers and phones (this raises an alert). Corr is the overall left/right correlation; S/M is how much side (stereo) content there is compared with the centre.',
+    'One word for the stereo picture. MONO: left and right identical. STEREO OK: balanced, with positive correlation. WIDE: most of the sound has little in common between the sides. UNBALANCED: the whole mix is more than 3 dB louder on one side. PHASE PROBLEM: a loud band from 125 Hz up stays out of phase over 3 seconds, so it cancels on mono speakers and phones (this raises an alert). Corr is the overall left/right correlation; S/M is how much side (stereo) content there is compared with the centre.',
   history:
     'Short-term loudness over time. The shaded band is the −16 to −12 LUFS target. Dashed lines: −10 LUFS (too loud) and the level the peaks keep reaching (the clip ceiling when clipping). The coloured strip underneath is the status each second: green clean, amber limited, red clipping. The orange line is the stereo correlation, read on the right-hand scale in the lower half: +1 mono, 0 wide, below 0 out of phase. Hover the graph for values.',
   peaks:
@@ -26,7 +26,7 @@ export const HELP = {
   'pan-map':
     'Where the sound sits left to right (across) at each frequency (up), averaged over about a second. Brighter means louder. A centred vocal and bass make a bright column in the middle; instruments panned to one side light up off-centre. On a mono feed everything is in the centre column. The edges mean one channel only.',
   'stereo-bands':
-    'One dot per octave, darker for bass and lighter for treble. Up and down is L/R correlation: +1 is mono, 0 is wide, below 0 is out of phase (cancels on a mono speaker). Left and right is balance. Bigger dots are louder bands; outlined dots are too quiet to judge. The dashed half-oval is roughly where a healthy stereo mix sits. Averaged over 1 second.',
+    'One dot per octave, darker for bass and lighter for treble. Up and down is L/R correlation: +1 is mono, 0 is wide, below 0 is out of phase (cancels on a mono speaker). Left and right is balance. Bigger dots are louder bands; outlined dots are too quiet to judge. The dashed half-oval is roughly where a healthy stereo mix sits. Averaged over 1 second, so a band can dip below 0 for a moment: normal in recordings made with spaced microphones, bass notes especially. Only a band that stays down there is a problem (the Stereo card then says PHASE PROBLEM).',
   balance:
     'Average level of each octave compared with the 500 Hz band, over about 5 seconds. It is normal for the top octaves to be 10–20 dB below 500 Hz. Look for one band sticking out, or for changes during the service.',
   log:
