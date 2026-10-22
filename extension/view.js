@@ -92,7 +92,7 @@ function applySession(sess) {
       : `Monitoring stopped: ${sess.endedReason}. Click the toolbar button on a YouTube tab to start again.`;
   }
   $('tab-title').textContent = sess && sess.tab ? sess.tab.title : 'Not monitoring';
-  $('stop').disabled = !(sess && sess.running);
+  $('stop').disabled = $('reset').disabled = !(sess && sess.running);
   for (const id of ['export-csv', 'export-json']) if ($(id)) $(id).disabled = !started;
   if (!(sess && sess.running)) {
     state.frame = null;
@@ -201,6 +201,7 @@ async function pollPlayer() {
 // Buttons
 
 $('stop').addEventListener('click', () => hub.send({ type: 'stop' }));
+$('reset').addEventListener('click', () => hub.send({ type: 'reset', what: 'all' }));
 if ($('open-dashboard')) $('open-dashboard').addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') }));
 if ($('open-settings')) $('open-settings').addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html#settings') }));
 

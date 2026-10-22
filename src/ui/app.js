@@ -21,7 +21,7 @@ const HISTORY_MAX = 3600; // seconds of rows kept for the charts
 const UI_FPS = 10;
 
 const el = {
-  source: $('source'), device: $('device'), deviceField: $('device-field'), start: $('start'), stop: $('stop'),
+  source: $('source'), device: $('device'), deviceField: $('device-field'), start: $('start'), stop: $('stop'), reset: $('reset'),
   wallclock: $('wallclock'), elapsed: $('elapsed'), tabReminder: $('tab-reminder'), error: $('error'),
   alerts: $('alerts'), filePanel: $('file-panel'), dropzone: $('dropzone'), fileInput: $('file-input'),
   fileProgress: $('file-progress'), fileResult: $('file-result'), fileName: $('file-name'), fileSummary: $('file-summary'),
@@ -251,7 +251,7 @@ function setMode(mode) {
   el.filePanel.hidden = mode !== 'file';
   el.humListen.hidden = !(mode === 'file' && state.file);
   el.start.hidden = mode === 'file';
-  el.stop.hidden = mode === 'file';
+  el.stop.hidden = el.reset.hidden = mode === 'file';
   document.querySelectorAll('.seg button').forEach((b) => (b.disabled = false));
   if (mode === 'file' && !timeline) createTimeline();
   showError('');
@@ -276,7 +276,7 @@ async function startLive() {
     await engine.startStream(stream, streamSampleRate(stream));
     state.running = true;
     setText(el.dRate, `${engine.ctx.sampleRate} Hz`);
-    el.stop.disabled = false;
+    el.stop.disabled = el.reset.disabled = false;
     el.source.disabled = el.device.disabled = true;
   } catch (e) {
     await engine.close();
@@ -291,9 +291,10 @@ function beginSession() {
   state.lastRow = null;
   state.summary = null;
   state.exported = true;
+  state.lastFrame = null;
   state.dismissed.clear();
   state.alerts = new AlertMonitor(state.alertCfg);
-  recorder.clear();
+  recorder.clear(); // a CSV being recorded to disk carries on
   log.clear();
   spectrum.clear();
   panMap.clear();
@@ -304,6 +305,18 @@ function beginSession() {
   el.exportCsv.disabled = el.exportJson.disabled = true;
 }
 
+// Clears the board (e.g. for a new song): a fresh session on the same source.
+async function resetLive() {
+  if (!state.running) return;
+  el.reset.disabled = true;
+  await engine.reset();
+  if (state.running) {
+    beginSession();
+    log.add({ clock: fmtClock(new Date()), t: 0, kind: 'info', title: 'Reset', detail: 'everything cleared; measuring afresh from here' });
+  }
+  el.reset.disabled = !state.running;
+}
+
 async function stopLive() {
   if (!state.running) return;
   state.running = false;
@@ -312,7 +325,7 @@ async function stopLive() {
   await recorder.stopDisk();
   updateRecordButton();
   el.start.disabled = false;
-  el.stop.disabled = true;
+  el.stop.disabled = el.reset.disabled = true;
   el.source.disabled = el.device.disabled = false;
   setText(el.elapsed, `stopped after ${fmtDuration(state.lastRow ? state.lastRow.t : 0)}`);
   meters.renderStatus('IDLE');
@@ -531,6 +544,7 @@ el.source.addEventListener('change', async () => {
 });
 el.start.addEventListener('click', startLive);
 el.stop.addEventListener('click', stopLive);
+el.reset.addEventListener('click', resetLive);
 el.play.addEventListener('click', togglePlay);
 el.humListenHum.addEventListener('click', () => listenToHum(false));
 el.humListenCtl.addEventListener('click', () => listenToHum(true));

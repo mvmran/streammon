@@ -117,26 +117,37 @@ async function start({ streamId, testUrl, tab }) {
     await testAudio.play();
     stream = testAudio.captureStream();
   }
-  Object.assign(s, {
-    running: true,
-    tab,
-    startWall: Date.now(),
-    endedReason: '',
-    history: [],
-    log: [],
-    lastFrame: null,
-    lastRow: null,
-    status: 'IDLE',
-    summary: null,
-    hum: null,
-    alerts: new AlertMonitor(loadAlertConfig()),
-  });
-  recorder.clear();
+  Object.assign(s, { running: true, tab, endedReason: '', status: 'IDLE' });
+  clearSession();
   engine.setHumOptions(humOptionsFrom(s.alerts.config));
   // Tab capture mutes the tab, so play the captured audio back to the user.
   await engine.startStream(stream, streamSampleRate(stream), { monitor: !!streamId });
   s.sampleRate = engine.ctx.sampleRate;
   broadcast({ type: 'session', session: session() });
+}
+
+// Fresh session data (start, and Reset). Views clear when they see the new startWall.
+function clearSession() {
+  Object.assign(s, {
+    startWall: Date.now(),
+    history: [],
+    log: [],
+    lastFrame: null,
+    lastRow: null,
+    summary: null,
+    hum: null,
+    alerts: new AlertMonitor(loadAlertConfig()),
+  });
+  recorder.clear();
+}
+
+// Clears the board (e.g. for a new song) without stopping the capture.
+async function resetAll() {
+  await engine.reset();
+  if (!s.running) return;
+  clearSession();
+  broadcast({ type: 'session', session: session() });
+  addLog({ clock: fmtClock(new Date()), t: 0, kind: 'info', title: 'Reset', detail: 'everything cleared; measuring afresh from here' });
 }
 
 async function stop(reason = 'Stopped') {
@@ -186,6 +197,8 @@ channel.onmessage = async (e) => {
     broadcast({ type: 'snapshot', session: session(), history: s.history, log: s.log, lastFrame: s.lastFrame, lastRow: s.lastRow, alerts: s.alerts.active, hum: s.hum });
   } else if (m.type === 'stop') {
     stop();
+  } else if (m.type === 'reset' && s.running && m.what === 'all') {
+    resetAll();
   } else if (m.type === 'reset' && s.running) {
     if (m.what === 'peaks') engine.resetPeaks();
     else engine.resetIntegrated();

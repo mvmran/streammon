@@ -142,12 +142,19 @@ async function main() {
     const stereoNote = await page.textContent('#stereo-bands-note');
     check(stereoNote && stereoNote !== '--', `stereo-by-band panel reports (${stereoNote})`);
     await page.screenshot({ path: join(OUT, 'device-mode.png'), fullPage: true });
+    await page.click('#reset');
+    await page.waitForFunction(() => /Reset/.test(document.getElementById('log-body').textContent), null, { timeout: 5000 });
+    const logAfterClear = await page.textContent('#log-body');
+    check(!/True peak max reset|Alert: Clipping/.test(logAfterClear) && !(await page.isVisible('.alert')), 'Reset clears the log and alerts');
+    await page.waitForFunction(() => document.getElementById('status').textContent === 'CLIPPING', null, { timeout: 20000 });
+    check(true, `measuring resumes after Reset (${await page.textContent('#elapsed')})`);
     await page.click('#stop');
     check(!(await page.isDisabled('#export-csv')), 'CSV export available after stop');
     const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#export-csv')]);
     const csv = await readFile(await dl.path(), 'utf8');
     const lines = csv.trim().split('\n');
-    check(lines[0].startsWith('wall_clock,elapsed_s') && lines.length > 10, `CSV has ${lines.length - 1} rows`);
+    check(lines[0].startsWith('wall_clock,elapsed_s') && lines.length > 3, `CSV has ${lines.length - 1} rows`);
+    check(Number(lines[1].split(',')[1]) <= 1, `CSV starts at the Reset (first row at ${lines[1].split(',')[1]} s)`);
 
     console.log('Browser tab mode (test player tab playing 18Oct2026-30):');
     const player = await context.newPage();

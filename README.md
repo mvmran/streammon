@@ -99,12 +99,19 @@ click **Add to Chrome**, then pin the **Stream Audio Monitor** button to the too
    **Alert settings** sets the thresholds; they are shared with the panel.
 5. **Stop** in the panel or dashboard ends monitoring. **CSV** / **JSON** export the
    session (also after stopping).
+6. **Reset** (after *Alert settings* in the panel, after *Stop* in the dashboard) clears
+   the board; see below.
 
 The panel checks the YouTube player while monitoring. It warns if the player is muted or not
 at 100%, and it warns when YouTube's loudness normalisation is turning the stream down, if
 the player exposes that. Those settings change the LUFS readings but not clipping detection.
 
 Monitoring stops if the YouTube tab is closed or reloaded; click the button again to restart.
+
+**Reset** (next to **Stop**) clears the board while monitoring carries on: every reading,
+chart, the spectrogram, the event log, alerts and the CSV/JSON data so far, so the meters
+describe only what follows, e.g. a new song or section. Export first if you need the earlier
+data. A CSV being recorded to disk keeps going (its elapsed time restarts at 0).
 
 ## What CLEAN / LIMITED / CLIPPING mean (for volunteers)
 

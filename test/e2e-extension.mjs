@@ -129,6 +129,11 @@ async function main() {
     const [dj] = await Promise.all([panel.waitForEvent('download'), panel.click('#export-json')]);
     const json = JSON.parse(await readFile(await dj.path(), 'utf8'));
     check(json.summary && json.summary.overallStatus === 'CLIPPING', `JSON summary overall status ${json.summary && json.summary.overallStatus}`);
+    await panel.click('#reset');
+    await dash.waitForFunction(() => /Reset/.test(document.getElementById('log-body').textContent), null, { timeout: 5000 });
+    check(!/True peak max reset|Clipping started/.test(await dash.textContent('#log-body')), 'Reset in the side panel clears the session (dashboard log starts afresh)');
+    await panel.waitForFunction(() => document.getElementById('status').textContent === 'CLIPPING', null, { timeout: 20000 });
+    check(true, 'side panel measures again after Reset');
     await panel.click('#stop');
     await panel.waitForSelector('#ended:not([hidden])', { timeout: 5000 });
     check(true, 'stop shows the ended notice');

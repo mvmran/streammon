@@ -14,6 +14,7 @@ export class AudioEngine {
     this.buffer = null;
     this.playStart = 0; // ctx time when playback started
     this.playOffset = 0; // file offset at that time
+    this.resetting = null; // resolves reset() once the worklet confirms
   }
 
   get running() {
@@ -54,6 +55,11 @@ export class AudioEngine {
 
   onMessage(msg) {
     const h = this.handlers;
+    if (msg.type === 'reset-done') {
+      this.endReset();
+      return;
+    }
+    if (this.resetting) return; // measured before a reset, still in flight
     if (msg.type === 'frame' && h.onFrame) h.onFrame(msg.frame);
     else if (msg.type === 'second' && h.onSecond) h.onSecond(msg.row);
     else if (msg.type === 'event' && h.onEvent) h.onEvent(msg.event);
@@ -137,6 +143,23 @@ export class AudioEngine {
 
   resetIntegrated() {
     if (this.node) this.node.port.postMessage({ type: 'reset-integrated' });
+  }
+
+  // Starts every measurement afresh (time back to 0). Resolves once the worklet has reset;
+  // frames, rows and events measured before it are dropped.
+  reset() {
+    if (!this.node) return Promise.resolve();
+    return new Promise((resolve) => {
+      this.resetting = resolve;
+      this.node.port.postMessage({ type: 'reset', ack: true });
+      setTimeout(() => this.resetting === resolve && this.endReset(), 1000);
+    });
+  }
+
+  endReset() {
+    const resolve = this.resetting;
+    this.resetting = null;
+    if (resolve) resolve();
   }
 
   // Asks the worklet to close any open episode and report its session summary.

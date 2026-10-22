@@ -16,7 +16,10 @@ class StreamAnalyzerProcessor extends AudioWorkletProcessor {
       onEvent: (event) => this.port.postMessage({ type: 'event', event }),
     });
     this.port.onmessage = (e) => {
-      if (e.data.type === 'reset') this.analyzer.reset();
+      if (e.data.type === 'reset') {
+        this.analyzer.reset();
+        if (e.data.ack) this.port.postMessage({ type: 'reset-done' });
+      }
       else if (e.data.type === 'reset-peaks') this.analyzer.resetPeaks();
       else if (e.data.type === 'reset-integrated') this.analyzer.resetIntegrated();
       else if (e.data.type === 'hum-config') this.analyzer.setHumOptions(e.data.options);
