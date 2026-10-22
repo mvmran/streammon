@@ -148,7 +148,7 @@ Each octave band (31 Hz – 16 kHz) is filtered by two cascaded RBJ band-pass bi
 - **Spectrum area (`src/ui/spectrum.js`):**
   - The ⅓-octave bars and the vertical spectrogram under them share one log frequency axis (the outer edges of the first and last band) and the same plot margins, so each bar sits over its own stretch of the spectrogram.
   - The spectrogram keeps one byte per pixel (the colour index) plus each row's arrival time, which is what its hover reads.
-  - It scrolls one row per UI tick (10/s), so the history length is set by the canvas height.
+  - It scrolls one row per 100 ms analyzer frame, timed by the audio clock, so the history length is set by the canvas height. Data goes in with `update()`/`updateData()` as frames arrive (also while the page is hidden, when Chrome stops animation frames); drawing happens in `render()` on the UI tick. The pan map works the same way. Rows added per UI tick left gaps behind other windows and made the time labels jitter (ticks land 100 or 117 ms apart).
   - Its colour scale runs from a floor (default −100 dB, `display.spectrogramFloorDb` in the settings, `setSpectrogramFloor`) to −10 dB; changing the floor re-maps the stored history. The spectrum bars' axis stays at −100.
   - The 5 s average line carries the octave balance readings (dB vs 500 Hz) at each octave centre, the same values the Octave balance panel shows (`balanceDb`).
 - **Column heights are balanced by hand.** In `index.html` and `extension/dashboard.html`:
@@ -173,7 +173,7 @@ Each octave band (31 Hz – 16 kHz) is filtered by two cascaded RBJ band-pass bi
 - **`offscreen.js`** owns the session and outlives the service worker's idle shutdowns.
   - It captures with `getUserMedia({ chromeMediaSource: 'tab' })` and reuses `AudioEngine`, passing `monitor: true` because tab capture mutes the tab.
   - It keeps history, log, CSV rows (`SessionRecorder`) and `AlertMonitor`.
-  - It only sends spectrum data while a dashboard keeps sending `want-spectrum`.
+  - It only sends spectrum data while a dashboard keeps sending `want-spectrum` (each lasts 75 s, since a hidden dashboard's timers may fire only once a minute; `no-spectrum` on pagehide). It sends one `spectrum` message per analyzer frame, stamped with the frame's `t`.
 - **Views:** `panel.html` (side panel) and `dashboard.html` both run `view.js`, keyed on the same element ids as the web app. The side panel is deliberately compact: no hum panel (hum alerts still show), no spectrum or stereo views.
   - They talk to the offscreen document over the `BroadcastChannel` in `client.js`: `hello` → `snapshot`, then `frame` / `row` / `log` / `alerts` / `session` / `spectrum`.
   - Exports use `get-csv` / `get-json` request–reply messages.

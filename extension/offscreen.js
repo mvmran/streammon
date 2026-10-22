@@ -35,7 +35,6 @@ const s = {
 };
 let testAudio = null;
 let spectrumUntil = 0;
-let spectrumTimer = null;
 
 const engine = new AudioEngine({
   onFrame,
@@ -63,6 +62,7 @@ function onFrame(f) {
   if (!s.running) return; // frames still in flight while stopping would undo the IDLE state
   s.lastFrame = f;
   broadcast({ type: 'frame', frame: f });
+  sendSpectrum(f);
   if (f.status !== s.status) {
     s.status = f.status;
     toBackground({ type: 'status', status: f.status });
@@ -182,23 +182,21 @@ async function stop(reason = 'Stopped') {
   broadcast({ type: 'session', session: session() });
 }
 
-// Spectrum data is only sent while a dashboard is open and asking for it.
-function wantSpectrum() {
-  spectrumUntil = Date.now() + 3000;
-  if (spectrumTimer) return;
-  spectrumTimer = setInterval(() => {
-    if (Date.now() > spectrumUntil || !s.running || !engine.analyser) {
-      clearInterval(spectrumTimer);
-      spectrumTimer = null;
-      return;
-    }
-    const n = engine.analyser.frequencyBinCount;
-    const data = new Float32Array(n), left = new Float32Array(n), right = new Float32Array(n);
-    engine.analyser.getFloatFrequencyData(data);
-    engine.analyserL.getFloatFrequencyData(left);
-    engine.analyserR.getFloatFrequencyData(right);
-    broadcast({ type: 'spectrum', data, left, right, sampleRate: engine.ctx.sampleRate });
-  }, 100);
+// Spectrum data is only sent while a dashboard is open and asking for it. A hidden
+// dashboard's timers can be throttled to once a minute, so one request lasts 75 s; a
+// closing dashboard says so ('no-spectrum').
+const SPECTRUM_KEEP_MS = 75000;
+
+// One spectrum message per analyzer frame (100 ms of audio), stamped with the frame's
+// audio-clock time so the dashboard's spectrogram rows are evenly spaced.
+function sendSpectrum(f) {
+  if (Date.now() > spectrumUntil || !engine.analyser) return;
+  const n = engine.analyser.frequencyBinCount;
+  const data = new Float32Array(n), left = new Float32Array(n), right = new Float32Array(n);
+  engine.analyser.getFloatFrequencyData(data);
+  engine.analyserL.getFloatFrequencyData(left);
+  engine.analyserR.getFloatFrequencyData(right);
+  broadcast({ type: 'spectrum', data, left, right, sampleRate: engine.ctx.sampleRate, t: f.t });
 }
 
 function exportBase() {
@@ -222,7 +220,9 @@ channel.onmessage = async (e) => {
     const title = m.what === 'peaks' ? 'True peak max reset' : 'Integrated loudness reset';
     addLog({ clock: fmtClock(new Date()), t: s.lastRow ? s.lastRow.t : 0, kind: 'info', title, detail: 'measuring again from here' });
   } else if (m.type === 'want-spectrum') {
-    wantSpectrum();
+    spectrumUntil = Date.now() + SPECTRUM_KEEP_MS;
+  } else if (m.type === 'no-spectrum') {
+    spectrumUntil = 0;
   } else if (m.type === 'get-csv') {
     broadcast({ type: 'reply', id: m.id, name: `${exportBase()}.csv`, text: recorder.csv() });
   } else if (m.type === 'get-json') {

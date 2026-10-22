@@ -26,7 +26,6 @@ const state = {
   cfg: loadAlertConfig(),
   range: 300,
   frame: null,
-  spectrum: null,
 };
 
 if ($('settings')) {
@@ -139,8 +138,11 @@ const hub = connectHub({
     state.active = m.active;
     renderAlerts();
   },
+  // Taken in as they arrive (one per 100 ms of audio), also while this page is hidden,
+  // so the spectrogram has no gaps; drawn in tick().
   spectrum(m) {
-    state.spectrum = m;
+    if (spectrum) spectrum.updateData(m.data, m.sampleRate, 0.1, m.t);
+    if (panMap && m.left) panMap.update(m.left, m.right, m.sampleRate, 0.1);
   },
   hum(m) {
     humView.render(m.hum);
@@ -154,27 +156,25 @@ let lastTick = performance.now();
 function tick(now) {
   requestAnimationFrame(tick);
   if (now - lastTick < 1000 / UI_FPS - 2) return;
-  const dt = (now - lastTick) / 1000;
   lastTick = now;
   if (state.frame) {
     meters.renderFrame(state.frame);
     $('elapsed').textContent = `elapsed ${fmtDuration(state.frame.t)}`;
     state.frame = null;
   }
-  if (spectrum && state.spectrum) {
-    spectrum.updateData(state.spectrum.data, state.spectrum.sampleRate, dt);
-    if (panMap && state.spectrum.left) panMap.update(state.spectrum.left, state.spectrum.right, state.spectrum.sampleRate, dt);
-    state.spectrum = null;
-  }
+  if (spectrum) spectrum.render();
+  if (panMap) panMap.render();
   if ($('wallclock')) $('wallclock').textContent = fmtClock(new Date());
 }
 requestAnimationFrame(tick);
 
-// The offscreen document only sends spectrum data while someone asks for it.
+// The offscreen document only sends spectrum data while someone asks for it: keep asking
+// while hidden too, so the spectrogram keeps filling behind other windows.
 if (spectrum) {
   setInterval(() => {
-    if (!document.hidden && state.session && state.session.running) hub.send({ type: 'want-spectrum' });
+    if (state.session && state.session.running) hub.send({ type: 'want-spectrum' });
   }, 1000);
+  window.addEventListener('pagehide', () => hub.send({ type: 'no-spectrum' }));
 }
 
 // ---------------------------------------------------------------------------

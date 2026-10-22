@@ -64,7 +64,9 @@ export class SpectrumView {
     this.bandHover = null; // { i, e } while the pointer is over a bar
     this.sgHover = null; // pointer event while over the spectrogram
     // Spectrogram history: one byte per pixel (the colour index, 0.35 dB steps) in a ring
-    // of rows, newest drawn at the top, plus the time each row arrived.
+    // of rows, newest drawn at the top, plus each row's time on the audio clock.
+    // Rows are added per 100 ms analyzer frame, even while the page is hidden (no
+    // animation frames then); drawing waits for render(), called on animation frames.
     this.sg = null;
     // The height attribute is the CSS height. Read it once: setting canvas.height to the
     // device-pixel size rewrites the attribute, so re-reading it would compound the
@@ -262,24 +264,33 @@ export class SpectrumView {
     }
   }
 
-  // dt: seconds since the last update, for the octave-balance smoothing.
-  update(analyser, sampleRate, dt) {
+  // One analyzer frame. dt: seconds of audio since the last one (for the averages);
+  // t: the frame's time on the audio clock (s), which places the spectrogram row.
+  update(analyser, sampleRate, dt, t) {
     if (!this.data || this.data.length !== analyser.frequencyBinCount) this.data = new Float32Array(analyser.frequencyBinCount);
     analyser.getFloatFrequencyData(this.data);
-    this.updateData(this.data, sampleRate, dt);
+    this.updateData(this.data, sampleRate, dt, t);
   }
 
   // Same as update() for spectrum data (dB per FFT bin) obtained elsewhere.
-  updateData(data, sampleRate, dt) {
+  updateData(data, sampleRate, dt, t) {
     this.data = data;
     this.levels = thirdOctaveLevels(data, sampleRate);
     const power = this.levels.map((l) => Math.pow(10, l / 10));
     const a = 1 - Math.exp(-dt / 5);
     if (!this.thirdPower) this.thirdPower = power;
     else this.thirdPower = this.thirdPower.map((p, i) => p + (power[i] - p) * a);
-    this.drawBands();
-    this.addSpectrogramRow(sampleRate);
+    this.addSpectrogramRow(sampleRate, t);
     this.updateBalance(sampleRate, dt);
+    this.dirty = true;
+  }
+
+  // Draws what changed since the last call: call it on animation frames.
+  render() {
+    if (!this.dirty) return;
+    this.dirty = false;
+    this.drawBands();
+    this.drawSpectrogram();
     if (this.bandHover) this.showBandTip();
     if (this.sgHover) this.showSpectrogramTip();
   }
@@ -357,8 +368,8 @@ export class SpectrumView {
   }
 
   // Adds the newest row at the top of the history (each pixel: the loudest FFT bin in
-  // its frequency range) and redraws.
-  addSpectrogramRow(sampleRate) {
+  // its frequency range). t: audio-clock time of the row (s).
+  addSpectrogramRow(sampleRate, t) {
     const sg = this.sg;
     if (!sg) return;
     const nb = this.data.length;
@@ -371,7 +382,7 @@ export class SpectrumView {
     }
     sg.head = (sg.head + 1) % sg.rows;
     sg.count = Math.min(sg.rows, sg.count + 1);
-    sg.times[sg.head] = performance.now() / 1000;
+    sg.times[sg.head] = Number.isFinite(t) ? t : performance.now() / 1000;
     const base = sg.head * sg.cols;
     const px = sg.row.data;
     for (let x = 0; x < sg.cols; x++) {
@@ -387,7 +398,6 @@ export class SpectrumView {
     }
     sg.bctx.drawImage(sg.buf, 0, 1);
     sg.bctx.putImageData(sg.row, 0, 0);
-    this.drawSpectrogram();
   }
 
   // History image plus axes: time down the left (newest at the top), frequency below.
@@ -404,7 +414,8 @@ export class SpectrumView {
     ctx.lineWidth = 1;
     const plotB = sg.rows / sg.dpr;
     this.drawFreqAxis(ctx, sg.x0 / sg.dpr, (sg.x0 + sg.cols) / sg.dpr, plotB);
-    // Time labels every 5 s, placed by each row's arrival time.
+    // Time labels every 5 s, placed by each row's audio-clock time (rows are 100 ms apart,
+    // so the labels hold still).
     ctx.textAlign = 'right';
     ctx.fillText('now', PLOT_L - 4, 6);
     if (!sg.count) return;

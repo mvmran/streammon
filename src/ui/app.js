@@ -57,7 +57,9 @@ const state = {
 
 const engine = new AudioEngine({
   onFrame: (f) => {
-    if (state.running || state.playing) state.lastFrame = f; // not after Stop
+    if (!(state.running || state.playing)) return; // not after Stop
+    state.lastFrame = f;
+    ingestSpectrum(f);
   },
   onSecond: onRow,
   onEvent: onEvent,
@@ -184,25 +186,31 @@ function redrawCharts() {
   showRecent([historyChart, peakChart], state.history, state.historyRange);
 }
 
+// Spectrum, spectrogram and pan map data: read once per 100 ms analyzer frame, so the
+// spectrogram keeps filling (on the audio clock) while the page is hidden and animation
+// frames stop; the drawing happens in tick().
+function ingestSpectrum(f) {
+  if (!engine.ctx || !engine.analyser) return;
+  const sr = engine.ctx.sampleRate;
+  spectrum.update(engine.analyser, sr, 0.1, state.mode === 'file' ? f.t + state.playOffset : f.t);
+  const n = engine.analyserL.frequencyBinCount;
+  if (!panL || panL.length !== n) [panL, panR] = [new Float32Array(n), new Float32Array(n)];
+  engine.analyserL.getFloatFrequencyData(panL);
+  engine.analyserR.getFloatFrequencyData(panR);
+  panMap.update(panL, panR, sr, 0.1);
+}
+
 let lastTick = performance.now();
 function tick(now) {
   requestAnimationFrame(tick);
   if (now - lastTick < 1000 / UI_FPS - 2) return;
-  const dt = (now - lastTick) / 1000;
   lastTick = now;
   if (state.lastFrame) {
     renderFrame(state.lastFrame);
     state.lastFrame = null;
   }
-  const active = (state.running || state.playing) && engine.ctx;
-  if (active && engine.analyser) spectrum.update(engine.analyser, engine.ctx.sampleRate, dt);
-  if (active && engine.analyserL) {
-    const n = engine.analyserL.frequencyBinCount;
-    if (!panL || panL.length !== n) [panL, panR] = [new Float32Array(n), new Float32Array(n)];
-    engine.analyserL.getFloatFrequencyData(panL);
-    engine.analyserR.getFloatFrequencyData(panR);
-    panMap.update(panL, panR, engine.ctx.sampleRate, dt);
-  }
+  spectrum.render();
+  panMap.render();
   if (state.playing && timeline) {
     const pos = engine.position;
     if (pos !== null) {

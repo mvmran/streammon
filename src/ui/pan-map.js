@@ -120,6 +120,13 @@ export class PanMapView {
       const a = 1 - Math.exp(-dt / SMOOTH_S);
       for (let i = 0; i < acc.length; i++) this.grid[i] += (acc[i] - this.grid[i]) * a;
     }
+    this.dirty = true;
+  }
+
+  // Draws the latest grid: call it on animation frames (update() may run while hidden).
+  render() {
+    if (!this.dirty) return;
+    this.dirty = false;
     this.draw();
     if (this.hover) this.showTip();
   }
