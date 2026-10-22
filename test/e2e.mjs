@@ -142,10 +142,22 @@ async function main() {
     const stereoNote = await page.textContent('#stereo-bands-note');
     check(stereoNote && stereoNote !== '--', `stereo-by-band panel reports (${stereoNote})`);
     await page.screenshot({ path: join(OUT, 'device-mode.png'), fullPage: true });
+    // A stand-in save dialog, so "Record CSV to disk" can run headless.
+    await page.evaluate(() => {
+      window.showSaveFilePicker = async () => ({ name: 'test.csv', createWritable: async () => ({ write: async () => {}, close: async () => (window.csvClosed = true) }) });
+    });
+    await page.click('#record-disk');
+    await page.waitForFunction(() => /Recording to test\.csv/.test(document.getElementById('record-disk').textContent), null, { timeout: 5000 });
     await page.click('#reset');
     await page.waitForFunction(() => /Reset/.test(document.getElementById('log-body').textContent), null, { timeout: 5000 });
     const logAfterClear = await page.textContent('#log-body');
     check(!/True peak max reset|Alert: Clipping/.test(logAfterClear) && !(await page.isVisible('.alert')), 'Reset clears the log and alerts');
+    const diskStopped = await page.evaluate(() => window.csvClosed === true && !/Recording/.test(document.getElementById('record-disk').textContent));
+    check(diskStopped && /recording to test\.csv stopped/.test(logAfterClear), 'Reset stops recording the CSV to disk (logged)');
+    await page.waitForFunction(() => !document.getElementById('reset').disabled, null, { timeout: 3000 });
+    await page.click('#reset');
+    await page.waitForFunction(() => !document.getElementById('reset').disabled && /measuring afresh/.test(document.getElementById('log-body').textContent), null, { timeout: 5000 });
+    check(true, 'Reset can be used again straight away');
     await page.waitForFunction(() => document.getElementById('status').textContent === 'CLIPPING', null, { timeout: 20000 });
     check(true, `measuring resumes after Reset (${await page.textContent('#elapsed')})`);
     await page.click('#stop');

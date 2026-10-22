@@ -294,7 +294,7 @@ function beginSession() {
   state.lastFrame = null;
   state.dismissed.clear();
   state.alerts = new AlertMonitor(state.alertCfg);
-  recorder.clear(); // a CSV being recorded to disk carries on
+  recorder.clear();
   log.clear();
   spectrum.clear();
   panMap.clear();
@@ -305,16 +305,28 @@ function beginSession() {
   el.exportCsv.disabled = el.exportJson.disabled = true;
 }
 
-// Clears the board (e.g. for a new song): a fresh session on the same source.
+// Clears the board (e.g. for a new song): a fresh session on the same source. A CSV being
+// recorded to disk is closed, so the file holds what came before the reset.
 async function resetLive() {
   if (!state.running) return;
   el.reset.disabled = true;
-  await engine.reset();
-  if (state.running) {
-    beginSession();
-    log.add({ clock: fmtClock(new Date()), t: 0, kind: 'info', title: 'Reset', detail: 'everything cleared; measuring afresh from here' });
+  try {
+    const recording = recorder.writer ? recorder.fileName : null;
+    if (recording) {
+      await recorder.stopDisk();
+      updateRecordButton();
+    }
+    await engine.reset();
+    if (state.running) {
+      beginSession();
+      const detail = recording ? `everything cleared; recording to ${recording} stopped` : 'everything cleared; measuring afresh from here';
+      log.add({ clock: fmtClock(new Date()), t: 0, kind: 'info', title: 'Reset', detail });
+    }
+  } catch (e) {
+    showError(`Reset failed: ${describeError(e)}. Reload the page and try again.`);
+  } finally {
+    el.reset.disabled = !state.running;
   }
-  el.reset.disabled = !state.running;
 }
 
 async function stopLive() {

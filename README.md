@@ -111,7 +111,8 @@ Monitoring stops if the YouTube tab is closed or reloaded; click the button agai
 **Reset** (next to **Stop**) clears the board while monitoring carries on: every reading,
 chart, the spectrogram, the event log, alerts and the CSV/JSON data so far, so the meters
 describe only what follows, e.g. a new song or section. Export first if you need the earlier
-data. A CSV being recorded to disk keeps going (its elapsed time restarts at 0).
+data. In the web app, Reset also stops **Record CSV to disk**, so that file ends at the
+reset; start a new recording afterwards if you want one.
 
 ## What CLEAN / LIMITED / CLIPPING mean (for volunteers)
 
