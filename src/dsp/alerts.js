@@ -9,7 +9,7 @@ export const DEFAULT_ALERTS = {
   // Mains hum: these also configure the detector (mains frequency, alert level, speech target).
   hum: { enabled: true, mainsFrequencyHz: 50, alertLevelDbfs: -75, speechTargetLufs: -18, seconds: 5 },
   // Stereo status (live sources): phase problem and imbalance alerts; a mono-feed alert is opt-in.
-  stereo: { enabled: true, phaseSeconds: 5, unbalancedSeconds: 15, mono: false, monoSeconds: 10 },
+  stereo: { enabled: true, phaseSeconds: 5, unbalancedSeconds: 15, deadSeconds: 5, mono: false, monoSeconds: 10 },
   clearAfterSec: 5, // an alert stays up until its condition has been absent this long
   sound: false, // off by default: this runs during services
 };
@@ -23,6 +23,7 @@ export const ALERT_LABELS = {
   stereoPhase: 'Phase problem',
   stereoBalance: 'Stereo unbalanced',
   stereoMono: 'Mono feed',
+  stereoDead: 'Channel dead',
 };
 
 // The detector settings held in the alert configuration.
@@ -47,7 +48,7 @@ export class AlertMonitor {
   }
 
   reset() {
-    this.run = { clipping: 0, shortTermHigh: 0, hum: 0, stereoPhase: 0, stereoBalance: 0, stereoMono: 0 };
+    this.run = { clipping: 0, shortTermHigh: 0, hum: 0, stereoPhase: 0, stereoBalance: 0, stereoMono: 0, stereoDead: 0 };
     this.active = {}; // id -> { since, lastSeen, message }
   }
 
@@ -78,11 +79,15 @@ export class AlertMonitor {
     this.run.stereoPhase = row.stereoStatus === 'PHASE PROBLEM' ? this.run.stereoPhase + 1 : 0;
     this.run.stereoBalance = row.stereoStatus === 'UNBALANCED' ? this.run.stereoBalance + 1 : 0;
     this.run.stereoMono = row.stereoStatus === 'MONO' ? this.run.stereoMono + 1 : 0;
+    this.run.stereoDead = row.stereoStatus === 'CHANNEL DEAD' ? this.run.stereoDead + 1 : 0;
+    if (sc.enabled && this.run.stereoDead >= sc.deadSeconds) out.stereoDead = `${row.stereoDetail} (${this.run.stereoDead} s)`;
     if (sc.enabled && this.run.stereoPhase >= sc.phaseSeconds) out.stereoPhase = `${row.stereoDetail} (${this.run.stereoPhase} s)`;
     if (sc.enabled && this.run.stereoBalance >= sc.unbalancedSeconds) out.stereoBalance = `${row.stereoDetail} (${this.run.stereoBalance} s)`;
     if (sc.enabled && sc.mono && this.run.stereoMono >= sc.monoSeconds) out.stereoMono = `Left and right identical for ${this.run.stereoMono} s`;
     const io = c.integratedOff;
-    if (io.enabled && row.t >= io.minSeconds && Number.isFinite(row.integrated) && Math.abs(row.integrated - io.target) > io.tolerance) {
+    // Time since integrated loudness was last reset (rows from before that field: since start).
+    const integrating = Number.isFinite(row.integratedSeconds) ? row.integratedSeconds : row.t;
+    if (io.enabled && integrating >= io.minSeconds && Number.isFinite(row.integrated) && Math.abs(row.integrated - io.target) > io.tolerance) {
       out.integratedOff = `Integrated ${fmt(row.integrated)} LUFS (target ${io.target} ±${io.tolerance})`;
     }
     return out;

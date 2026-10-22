@@ -14,7 +14,7 @@ import { LoudnessMeter } from './loudness.js';
 import { TruePeakChannel } from './truepeak.js';
 import { ClipDetector, CLEAN, LIMITED, CLIPPING } from './clipdetect.js';
 import { StereoMeter } from './stereo.js';
-import { StereoBands, StereoStatus, STEREO_RULES, MONO } from './stereobands.js';
+import { StereoBands, StereoStatus, STEREO_RULES, MONO, CHANNEL_DEAD, deadChannel, deadDetail } from './stereobands.js';
 import { CrestMeter, toDb } from './crest.js';
 import { HumDetector, PRESENT as HUM_PRESENT, NOT_DETECTED as HUM_NOT_DETECTED, MASKED as HUM_MASKED } from './hum.js';
 
@@ -68,6 +68,7 @@ export class StreamAnalyzer {
     this.maxMomentary = -Infinity;
     this.maxShortTerm = -Infinity;
     this.statusSeconds = { [CLEAN]: 0, [LIMITED]: 0, [CLIPPING]: 0 };
+    this.integratedFrom = 0; // elapsed time integrated loudness was last reset at
     this.dwellSum = 0;
     this.fullScaleSamples = 0;
     this.lastClip = null;
@@ -139,7 +140,7 @@ export class StreamAnalyzer {
       const stereo = this.stereo.current;
       const bands = this.bandStereo.current;
       const judged = this.bandStereo.over(STEREO_RULES.windowFrames);
-      this.lastStereo = this.stereoStatus.update(judged, stereo.mono, this.stereo.balanceDb);
+      this.lastStereo = this.stereoStatus.update(judged, stereo.mono, this.stereo.balanceDb, this.deadSide());
       this.onFrame({
         t: this.elapsed,
         momentary: m,
@@ -176,11 +177,13 @@ export class StreamAnalyzer {
     this.trackEpisode(c, t);
 
     const stereo = this.stereo.current;
+    const dead = this.deadSide();
     const row = {
       t,
       momentary: this.loudness.momentary,
       shortTerm: this.loudness.shortTerm,
       integrated: this.loudness.integrated,
+      integratedSeconds: t - this.integratedFrom, // since the last integrated reset
       lra: this.loudness.loudnessRange,
       samplePeakDb: toDb(this.s.peak),
       truePeakDb: toDb(this.s.tp),
@@ -191,8 +194,9 @@ export class StreamAnalyzer {
       sideMidDb: stereo.sideMidDb,
       mono: stereo.mono,
       stereoBalanceDb: this.stereo.balanceDb,
-      stereoStatus: this.lastStereo ? this.lastStereo.status : stereo.mono ? MONO : null,
-      stereoDetail: this.lastStereo ? this.lastStereo.detail : null,
+      // The file worker has no StereoStatus (no band filters): dead channel or MONO only.
+      stereoStatus: this.lastStereo ? this.lastStereo.status : dead ? CHANNEL_DEAD : stereo.mono ? MONO : null,
+      stereoDetail: this.lastStereo ? this.lastStereo.detail : dead ? deadDetail(dead) : null,
       status: c.status,
       detectors: c.detectors,
       dwellRate: c.dwellRate,
@@ -284,6 +288,12 @@ export class StreamAnalyzer {
     for (const w of this.hum.configWarnings) this.emit({ type: 'hum-config', t: this.elapsed, mainsHz: o.mainsFrequencyHz, message: w, warning: true });
   }
 
+  // 'left' / 'right' when that channel is silent while the other carries sound.
+  deadSide() {
+    const [l, r] = this.stereo.channelDb(this.frameLen);
+    return deadChannel(l, r);
+  }
+
   // Meter resets from the UI, e.g. after changing a gain while tuning.
   resetPeaks() {
     this.maxTruePeak = 0;
@@ -292,6 +302,7 @@ export class StreamAnalyzer {
 
   resetIntegrated() {
     this.loudness.resetIntegration();
+    this.integratedFrom = this.elapsed;
   }
 
   // Closes any open episode (end of file / stop). Safe to call more than once.

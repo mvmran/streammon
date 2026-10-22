@@ -111,7 +111,7 @@ Monitoring stops if the YouTube tab is closed or reloaded; click the button agai
 **Reset** (next to **Stop**) clears the board while monitoring carries on: every reading,
 chart, the spectrogram, the event log, alerts and the CSV/JSON data so far, so the meters
 describe only what follows, e.g. a new song or section. Export first if you need the earlier
-data. In the web app, Reset also stops **Record CSV to disk**, so that file ends at the
+data; with more than 10 minutes of it, Reset asks before clearing. In the web app, Reset also stops **Record CSV to disk**, so that file ends at the
 reset; start a new recording afterwards if you want one.
 
 ## What CLEAN / LIMITED / CLIPPING mean (for volunteers)
@@ -144,8 +144,9 @@ The text under the status says how it was detected:
   heavily limited audio is around 10–11 dB and clipped audio often under 9 dB.
 - **Stereo status** (the Stereo card): MONO (left and right identical), STEREO OK, WIDE,
   UNBALANCED (whole mix more than 3 dB louder on one side) or PHASE PROBLEM (a loud band
-  from 125 Hz up stays out of phase over 3 s, so it cancels on phones and mono speakers).
-  A phase problem for 5 s and
+  from 125 Hz up stays out of phase over 3 s, so it cancels on phones and mono speakers)
+  or CHANNEL DEAD (one side silent while the other carries sound: an unplugged cable or a
+  muted output). A dead channel for 5 s, a phase problem for 5 s and
   imbalance for 15 s raise alerts; an alert for a mono feed can be switched on in
   *Alerts & settings*. Our feeds are currently mono because of a configuration problem;
   the aim is full stereo.

@@ -189,6 +189,13 @@ describe('alerts', () => {
     assert.deepEqual(m.update(row(35)).cleared, ['integratedOff']);
   });
 
+  test('integrated off target waits the minimum time after an integrated reset too', () => {
+    const m = new AlertMonitor({ integratedOff: { minSeconds: 60 } });
+    // 15 minutes in, but integrated loudness was reset 1 s ago: too little to judge.
+    assert.equal(m.update(row(900, { integrated: -24, integratedSeconds: 1 })).raised.length, 0);
+    assert.deepEqual(m.update(row(960, { integrated: -24, integratedSeconds: 60 })).raised.map((a) => a.id), ['integratedOff']);
+  });
+
   test('disabled alerts never fire', () => {
     const m = new AlertMonitor({ truePeak: { enabled: false } });
     assert.equal(m.update(row(1, { truePeakDb: 0.5 })).raised.length, 0);

@@ -56,7 +56,9 @@ const state = {
 // Engine and views
 
 const engine = new AudioEngine({
-  onFrame: (f) => (state.lastFrame = f),
+  onFrame: (f) => {
+    if (state.running || state.playing) state.lastFrame = f; // not after Stop
+  },
   onSecond: onRow,
   onEvent: onEvent,
   onHum: (h) => {
@@ -77,9 +79,12 @@ const engine = new AudioEngine({
 
 state.alertCfg = setupSettings($('settings'), $('settings-btn'), (cfg) => {
   const mainsChanged = cfg.hum.mainsFrequencyHz !== state.alertCfg.hum.mainsFrequencyHz;
+  const humChanged = JSON.stringify(humOptionsFrom(cfg)) !== JSON.stringify(humOptionsFrom(state.alertCfg));
   state.alertCfg = cfg;
-  state.alerts = new AlertMonitor(cfg);
-  engine.setHumOptions(humOptionsFrom(cfg));
+  // Keep the running alert state (active banners, counters); only the thresholds change.
+  state.alerts.config = cfg;
+  // Re-applying hum settings restarts the hum measurement, so only when they changed.
+  if (humChanged) engine.setHumOptions(humOptionsFrom(cfg));
   humView.renderMains();
   renderAlerts();
   // A loaded file was analysed with the old mains frequency: analyse it again.
@@ -90,6 +95,10 @@ engine.setHumOptions(humOptionsFrom(state.alertCfg));
 
 const log = new EventLog($('log-body'), $('log-empty'), { onSeek: (t) => state.mode === 'file' && playFrom(t) });
 const recorder = new SessionRecorder();
+recorder.onDiskError = (e, name) => {
+  updateRecordButton();
+  showError(`Recording to ${name} stopped: ${describeError(e)}. The session is still kept here; export it with CSV.`);
+};
 const spectrum = new SpectrumView({ bands: $('bands'), sgram: $('sgram'), balance: $('balance') });
 const panMap = new PanMapView($('pan-map'));
 let panL = null, panR = null; // reused spectrum buffers
@@ -183,7 +192,7 @@ function tick(now) {
     renderFrame(state.lastFrame);
     state.lastFrame = null;
   }
-  const active = state.running || state.playing;
+  const active = (state.running || state.playing) && engine.ctx;
   if (active && engine.analyser) spectrum.update(engine.analyser, engine.ctx.sampleRate, dt);
   if (active && engine.analyserL) {
     const n = engine.analyserL.frequencyBinCount;
@@ -285,6 +294,9 @@ async function startLive() {
   }
 }
 
+// Unexported data older than this makes Reset ask first.
+const RESET_CONFIRM_SECONDS = 600;
+
 function beginSession() {
   state.startWall = Date.now();
   state.history = [];
@@ -309,6 +321,8 @@ function beginSession() {
 // recorded to disk is closed, so the file holds what came before the reset.
 async function resetLive() {
   if (!state.running) return;
+  const secs = state.lastRow ? state.lastRow.t : 0;
+  if (secs > RESET_CONFIRM_SECONDS && !confirm(`Reset and clear the last ${Math.round(secs / 60)} minutes of readings, event log and CSV data? Export first if you need them.`)) return;
   el.reset.disabled = true;
   try {
     const recording = recorder.writer ? recorder.fileName : null;
@@ -332,10 +346,19 @@ async function resetLive() {
 async function stopLive() {
   if (!state.running) return;
   state.running = false;
-  state.summary = await engine.finish();
-  await engine.close();
-  await recorder.stopDisk();
+  try {
+    state.summary = await engine.finish();
+    await engine.close();
+  } catch (e) {
+    showError(`Stopping failed: ${describeError(e)}`);
+  }
+  try {
+    await recorder.stopDisk();
+  } catch (e) {
+    showError(`Could not finish the CSV file on disk: ${describeError(e)}. Export the session with CSV instead.`);
+  }
   updateRecordButton();
+  state.lastFrame = null; // a frame that arrived while stopping must not repaint the status
   el.start.disabled = false;
   el.stop.disabled = el.reset.disabled = true;
   el.source.disabled = el.device.disabled = false;
@@ -366,8 +389,8 @@ function createTimeline() {
 async function handleFile(file) {
   if (!file) return;
   if (state.running) await stopLive();
-  await engine.close();
   state.playing = false;
+  await engine.close();
   state.file = null;
   showError('');
   el.fileResult.hidden = true;
@@ -549,8 +572,9 @@ function updateRecordButton() {
 // Wiring
 
 el.source.addEventListener('change', async () => {
-  if (state.playing || state.file) await engine.close();
+  const wasActive = state.playing || state.file;
   state.playing = false;
+  if (wasActive) await engine.close();
   setMode(el.source.value);
   resetReadouts();
 });

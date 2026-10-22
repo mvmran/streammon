@@ -309,8 +309,8 @@ export class TimeChart {
     }
 
     // Hover crosshair and markers.
-    if (this.hoverX !== null) {
-      const row = this.nearest(this.hoverX);
+    const row = this.hoverX !== null ? this.nearest(this.hoverX) : null; // none once cleared
+    if (row) {
       const x = Math.round(this.x(row.t)) + 0.5;
       ctx.strokeStyle = css('--muted');
       ctx.lineWidth = 1;

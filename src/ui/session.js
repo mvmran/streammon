@@ -12,6 +12,7 @@ export class SessionRecorder {
     this.writer = null;
     this.queue = Promise.resolve();
     this.fileName = null;
+    this.onDiskError = null; // (error, fileName) when writing to disk fails and stops
   }
 
   clear() {
@@ -54,7 +55,14 @@ export class SessionRecorder {
 
   write(text) {
     const w = this.writer;
-    this.queue = this.queue.then(() => w.write(text)).catch((e) => console.error('CSV write failed', e));
+    this.queue = this.queue.then(() => w.write(text)).catch((e) => {
+      // Disk full, file removed, permission revoked: stop recording and say so, rather than
+      // carry on as if the file were still being written.
+      if (this.writer !== w) return;
+      this.writer = null;
+      Promise.resolve().then(() => w.abort()).catch(() => {});
+      if (this.onDiskError) this.onDiskError(e, this.fileName);
+    });
   }
 
   async stopDisk() {

@@ -148,10 +148,17 @@ async function main() {
     });
     await page.click('#record-disk');
     await page.waitForFunction(() => /Recording to test\.csv/.test(document.getElementById('record-disk').textContent), null, { timeout: 5000 });
-    await page.click('#reset');
+    // Reset while the pointer rests on the loudness chart, whose rows are cleared under it.
+    await page.locator('#history').scrollIntoViewIfNeeded();
+    const hist = await page.locator('#history').boundingBox();
+    await page.mouse.move(hist.x + hist.width * 0.97, hist.y + hist.height / 2);
+    await page.waitForSelector('#tooltip:not([hidden])', { timeout: 3000 });
+    await page.evaluate(() => document.getElementById('reset').click());
     await page.waitForFunction(() => /Reset/.test(document.getElementById('log-body').textContent), null, { timeout: 5000 });
     const logAfterClear = await page.textContent('#log-body');
     check(!/True peak max reset|Alert: Clipping/.test(logAfterClear) && !(await page.isVisible('.alert')), 'Reset clears the log and alerts');
+    check(!(await page.isVisible('#error')), `Reset works with the pointer on a chart (${await page.textContent('#error')})`);
+    await page.mouse.move(0, 0);
     const diskStopped = await page.evaluate(() => window.csvClosed === true && !/Recording/.test(document.getElementById('record-disk').textContent));
     check(diskStopped && /recording to test\.csv stopped/.test(logAfterClear), 'Reset stops recording the CSV to disk (logged)');
     await page.waitForFunction(() => !document.getElementById('reset').disabled, null, { timeout: 3000 });
@@ -162,6 +169,8 @@ async function main() {
     await page.waitForFunction(() => /elapsed 0:(0[5-9]|[1-5]\d)/.test(document.getElementById('elapsed').textContent), null, { timeout: 10000 });
     check(true, `measuring resumes after Reset (${await page.textContent('#elapsed')})`);
     await page.click('#stop');
+    await page.waitForTimeout(600); // a few UI ticks: a frame in flight at Stop must not repaint the status
+    check((await page.textContent('#status')) === 'IDLE', `status stays IDLE after Stop (${await page.textContent('#status')})`);
     check(!(await page.isDisabled('#export-csv')), 'CSV export available after stop');
     const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#export-csv')]);
     const csv = await readFile(await dl.path(), 'utf8');
@@ -194,6 +203,12 @@ async function main() {
     await page.waitForFunction(() => localStorage.getItem('streammon.alerts.v1'), null, { timeout: 5000 });
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('streammon.alerts.v1')));
     check(saved.truePeak.dbtp === -2 && saved.sound === false, 'alert threshold saved, sound still off');
+    await page.click('#settings-btn');
+    await page.fill('input[name="truePeak.dbtp"]', '-5');
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(200);
+    const afterEsc = await page.evaluate(() => JSON.parse(localStorage.getItem('streammon.alerts.v1')));
+    check(afterEsc.truePeak.dbtp === -2, `Esc closes the settings without saving (true peak ${afterEsc.truePeak.dbtp})`);
 
     check(errors.length === 0, `no page errors${errors.length ? `: ${errors.join(' | ')}` : ''}`);
   } catch (e) {

@@ -178,21 +178,27 @@ if (spectrum) {
 // YouTube player checks
 
 let polling = null;
+let polledTab = null;
 async function pollPlayer() {
   const sess = state.session;
   const list = $('player');
   if (!sess || !sess.running || !(sess.tab && sess.tab.id >= 0)) {
     list.hidden = true;
     clearTimeout(polling);
-    polling = null;
+    polling = polledTab = null;
     return;
   }
-  if (polling) return;
+  if (polling && polledTab === sess.tab.id) return;
+  clearTimeout(polling);
+  const tabId = (polledTab = sess.tab.id);
   const run = async () => {
-    const items = describePlayer(await checkPlayer(sess.tab.id));
+    const items = describePlayer(await checkPlayer(tabId));
+    // The session may have stopped or moved to another tab while the check ran.
+    const now = state.session;
+    if (polledTab !== tabId || !(now && now.running && now.tab && now.tab.id === tabId)) return;
     list.hidden = !items.length;
     list.innerHTML = items.map((i) => `<li class="${i.level}">${escapeHtml(i.text)}</li>`).join('');
-    polling = state.session && state.session.running ? setTimeout(run, 3000) : null;
+    polling = setTimeout(run, 3000);
   };
   polling = setTimeout(run, 0);
 }
@@ -201,7 +207,13 @@ async function pollPlayer() {
 // Buttons
 
 $('stop').addEventListener('click', () => hub.send({ type: 'stop' }));
-$('reset').addEventListener('click', () => hub.send({ type: 'reset', what: 'all' }));
+// Unexported data older than this makes Reset ask first.
+const RESET_CONFIRM_SECONDS = 600;
+$('reset').addEventListener('click', () => {
+  const secs = state.history.length ? state.history[state.history.length - 1].t : 0;
+  if (secs > RESET_CONFIRM_SECONDS && !confirm(`Reset and clear the last ${Math.round(secs / 60)} minutes of readings, event log and CSV data? Export first if you need them.`)) return;
+  hub.send({ type: 'reset', what: 'all' });
+});
 if ($('open-dashboard')) $('open-dashboard').addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html') }));
 if ($('open-settings')) $('open-settings').addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('dashboard.html#settings') }));
 

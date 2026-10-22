@@ -14,7 +14,10 @@ export class AudioEngine {
     this.buffer = null;
     this.playStart = 0; // ctx time when playback started
     this.playOffset = 0; // file offset at that time
-    this.resetting = null; // resolves reset() once the worklet confirms
+    this.resets = 0; // resets sent to the worklet and not yet confirmed
+    this.resetWaiters = [];
+    this.requests = new Map(); // request id -> resolve (summary replies)
+    this.nextId = 1;
   }
 
   get running() {
@@ -56,24 +59,33 @@ export class AudioEngine {
   onMessage(msg) {
     const h = this.handlers;
     if (msg.type === 'reset-done') {
-      this.endReset();
+      if (this.resets > 0 && --this.resets === 0) this.endReset();
       return;
     }
-    if (this.resetting) return; // measured before a reset, still in flight
+    if (msg.type === 'summary') {
+      const resolve = this.requests.get(msg.id);
+      this.requests.delete(msg.id);
+      if (resolve) resolve(msg.summary);
+      return;
+    }
+    if (this.resets) return; // measured before a reset, still in flight
     if (msg.type === 'frame' && h.onFrame) h.onFrame(msg.frame);
     else if (msg.type === 'second' && h.onSecond) h.onSecond(msg.row);
     else if (msg.type === 'event' && h.onEvent) h.onEvent(msg.event);
     else if (msg.type === 'hum' && h.onHum) h.onHum(msg.hum);
-    else if (msg.type === 'summary' && this.summaryResolve) {
-      this.summaryResolve(msg.summary);
-      this.summaryResolve = null;
-    }
   }
 
   // `monitor`: also play the stream to the speakers (needed for extension tab capture,
   // which otherwise mutes the tab).
   async startStream(stream, sampleRate, { monitor = false } = {}) {
-    await this.init(sampleRate);
+    try {
+      await this.init(sampleRate);
+    } catch (e) {
+      // Don't leave the microphone or tab capture running when the graph can't be built.
+      for (const t of stream.getTracks()) t.stop();
+      await this.close();
+      throw e;
+    }
     this.stream = stream;
     this.source = new MediaStreamAudioSourceNode(this.ctx, { mediaStream: stream });
     this.source.connect(this.input);
@@ -97,7 +109,7 @@ export class AudioEngine {
   seek(offset) {
     if (!this.buffer) return;
     this.stopSource();
-    this.node.port.postMessage({ type: 'reset' });
+    this.reset(); // rows from the old position still in flight are dropped
     const src = new AudioBufferSourceNode(this.ctx, { buffer: this.buffer });
     src.connect(this.input);
     src.onended = () => {
@@ -147,19 +159,22 @@ export class AudioEngine {
 
   // Starts every measurement afresh (time back to 0). Resolves once the worklet has reset;
   // frames, rows and events measured before it are dropped.
+  // Several can overlap: output is dropped until the worklet has confirmed them all.
   reset() {
     if (!this.node) return Promise.resolve();
     return new Promise((resolve) => {
-      this.resetting = resolve;
+      this.resetWaiters.push(resolve);
+      this.resets++;
       this.node.port.postMessage({ type: 'reset', ack: true });
-      setTimeout(() => this.resetting === resolve && this.endReset(), 1000);
+      setTimeout(() => this.resetWaiters.includes(resolve) && this.endReset(), 1000);
     });
   }
 
   endReset() {
-    const resolve = this.resetting;
-    this.resetting = null;
-    if (resolve) resolve();
+    this.resets = 0;
+    const waiters = this.resetWaiters;
+    this.resetWaiters = [];
+    for (const resolve of waiters) resolve();
   }
 
   // Asks the worklet to close any open episode and report its session summary.
@@ -172,22 +187,31 @@ export class AudioEngine {
     return this.request('summary');
   }
 
+  // Each request carries an id, so overlapping ones (two exports, an export during Stop)
+  // each get their own reply.
   request(type) {
     if (!this.node) return Promise.resolve(null);
     return new Promise((resolve) => {
-      this.summaryResolve = resolve;
-      this.node.port.postMessage({ type });
+      const id = this.nextId++;
+      this.requests.set(id, resolve);
+      this.node.port.postMessage({ type, id });
       setTimeout(() => {
-        if (this.summaryResolve === resolve) {
-          this.summaryResolve = null;
-          resolve(null);
-        }
+        if (this.requests.delete(id)) resolve(null);
       }, 1000);
     });
   }
 
   async close() {
     this.stopSource();
+    if (this.node) {
+      // Nothing measured after this point reaches the page (e.g. frames in flight at Stop).
+      this.node.port.onmessage = null;
+      this.node = null;
+    }
+    this.analyser = this.analyserL = this.analyserR = null;
+    for (const resolve of this.requests.values()) resolve(null);
+    this.requests.clear();
+    this.endReset();
     if (this.stream) {
       for (const t of this.stream.getTracks()) t.stop();
       this.stream = null;

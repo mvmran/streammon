@@ -121,7 +121,17 @@ async function start({ streamId, testUrl, tab }) {
   clearSession();
   engine.setHumOptions(humOptionsFrom(s.alerts.config));
   // Tab capture mutes the tab, so play the captured audio back to the user.
-  await engine.startStream(stream, streamSampleRate(stream), { monitor: !!streamId });
+  try {
+    await engine.startStream(stream, streamSampleRate(stream), { monitor: !!streamId });
+  } catch (e) {
+    // The engine has stopped the capture; don't stay "running" with nothing behind it.
+    s.running = false;
+    if (testAudio) {
+      testAudio.pause();
+      testAudio = null;
+    }
+    throw e;
+  }
   s.sampleRate = engine.ctx.sampleRate;
   broadcast({ type: 'session', session: session() });
 }
@@ -142,8 +152,15 @@ function clearSession() {
 }
 
 // Clears the board (e.g. for a new song) without stopping the capture.
+let resetting = false;
 async function resetAll() {
-  await engine.reset();
+  if (resetting) return; // a double click, or two views pressing Reset at once
+  resetting = true;
+  try {
+    await engine.reset();
+  } finally {
+    resetting = false;
+  }
   if (!s.running) return;
   clearSession();
   broadcast({ type: 'session', session: session() });

@@ -43,6 +43,7 @@ export function setupSettings(dialog, button, onChange) {
 
   button.addEventListener('click', () => {
     fill(cfg);
+    dialog.returnValue = ''; // Esc closes without setting it: a previous 'save' must not stick
     dialog.showModal();
   });
   dialog.querySelector('#settings-reset').addEventListener('click', () => fill(DEFAULT_ALERTS));

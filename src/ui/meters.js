@@ -9,9 +9,9 @@ import { fmtDb, fmtDuration, fmtClock, escapeHtml } from './format.js';
 
 const STATUS_ICON = { CLEAN: '✓', LIMITED: '▲', CLIPPING: '✖', IDLE: '' };
 // Stereo status word (src/dsp/stereobands.js): icon and badge style.
-const STEREO_ICON = { 'STEREO OK': '✓ ', WIDE: '◐ ', UNBALANCED: '▲ ', 'PHASE PROBLEM': '✖ ' };
-const STEREO_STYLE = { MONO: 'mono', 'STEREO OK': 'ok', WIDE: 'warn', UNBALANCED: 'warn', 'PHASE PROBLEM': 'crit' };
-const CRITICAL_ALERTS = new Set(['clipping', 'truePeak', 'stereoPhase']);
+const STEREO_ICON = { 'STEREO OK': '✓ ', WIDE: '◐ ', UNBALANCED: '▲ ', 'PHASE PROBLEM': '✖ ', 'CHANNEL DEAD': '✖ ' };
+const STEREO_STYLE = { MONO: 'mono', 'STEREO OK': 'ok', WIDE: 'warn', UNBALANCED: 'warn', 'PHASE PROBLEM': 'crit', 'CHANNEL DEAD': 'crit' };
+const CRITICAL_ALERTS = new Set(['clipping', 'truePeak', 'stereoPhase', 'stereoDead']);
 
 const IDS = {
   statusTile: 'status-tile', status: 'status', statusIcon: 'status-icon', statusDetail: 'status-detail',

@@ -2,7 +2,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { StereoBands, StereoStatus, MONO, STEREO_OK, WIDE, UNBALANCED, PHASE_PROBLEM } from '../src/dsp/stereobands.js';
+import { StereoBands, StereoStatus, MONO, STEREO_OK, WIDE, UNBALANCED, PHASE_PROBLEM, CHANNEL_DEAD, deadChannel } from '../src/dsp/stereobands.js';
 import { StreamAnalyzer } from '../src/dsp/analyzer.js';
 import { AlertMonitor } from '../src/dsp/alerts.js';
 import { csvHeader, csvRow } from '../src/dsp/report.js';
@@ -141,6 +141,29 @@ test('phase is judged over 3 s: a 1 s flip is not a phase problem, a lasting one
   assert.ok(first > 1 && first < 3, `flagged ${first} s into the flip`);
 });
 
+test('dead channel: one side silent while the other carries sound', () => {
+  assert.equal(deadChannel(-20, -Infinity), 'right');
+  assert.equal(deadChannel(-95, -25), 'left', 'an analog noise floor counts as dead');
+  assert.equal(deadChannel(-20, -45), null, '25 dB down is very unbalanced, not dead');
+  assert.equal(deadChannel(-70, -Infinity), null, 'nothing playing: not judged');
+  const st = new StereoStatus().update(bands(0.8), false, null, 'right');
+  assert.equal(st.status, CHANNEL_DEAD);
+  assert.match(st.detail, /^Right channel silent/);
+});
+
+test('the analyzer flags a dead channel in frames and rows (the file worker too)', () => {
+  const [L] = flipped(3, 0, 0);
+  const zeros = new Float32Array(L.length);
+  const frames = [], rows = [];
+  new StreamAnalyzer(SR, { onFrame: (f) => frames.push(f), onSecond: (r) => rows.push(r) }).process(L, zeros);
+  assert.equal(frames.at(-1).stereoStatus, CHANNEL_DEAD);
+  assert.equal(rows.at(-1).stereoStatus, CHANNEL_DEAD);
+  const fileRows = [];
+  new StreamAnalyzer(SR, { onSecond: (r) => fileRows.push(r) }).process(zeros, L);
+  assert.equal(fileRows.at(-1).stereoStatus, CHANNEL_DEAD);
+  assert.match(fileRows.at(-1).stereoDetail, /^Left channel silent/);
+});
+
 test('a worse stereo status is held for 3 s', () => {
   const st = new StereoStatus();
   const ok = bands(0.8), bad = bands([1, 1, 0.9, 0.8, 0.7, 0.6, -0.6, 0.5, 0.4, 0.3]);
@@ -163,6 +186,9 @@ test('stereo alerts: phase after 5 s, imbalance after 15 s, mono only when asked
   assert.deepEqual(u.update(row(15, UNBALANCED)).raised.map((a) => a.id), ['stereoBalance']);
   const mono = new AlertMonitor();
   for (let t = 1; t <= 30; t++) assert.equal(mono.update(row(t, MONO)).raised.length, 0);
+  const dead = new AlertMonitor();
+  for (let t = 1; t <= 4; t++) assert.equal(dead.update(row(t, CHANNEL_DEAD)).raised.length, 0);
+  assert.deepEqual(dead.update(row(5, CHANNEL_DEAD)).raised.map((a) => a.id), ['stereoDead']);
   const asked = new AlertMonitor({ stereo: { mono: true } });
   for (let t = 1; t <= 9; t++) asked.update(row(t, MONO));
   assert.deepEqual(asked.update(row(10, MONO)).raised.map((a) => a.id), ['stereoMono']);

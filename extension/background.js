@@ -39,7 +39,8 @@ async function startCapture(tab, streamIdPromise) {
   }
   const streamId = await streamIdPromise;
   await ensureOffscreen();
-  await toOffscreen({ type: 'start', streamId, tab: { id: tab.id, title: tab.title, url: tab.url } });
+  const r = await toOffscreen({ type: 'start', streamId, tab: { id: tab.id, title: tab.title, url: tab.url } });
+  if (r && r.ok === false) throw new Error(r.error);
 }
 
 // Test hook for test/e2e-extension.mjs: tab capture needs a real toolbar click, so the

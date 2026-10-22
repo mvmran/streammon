@@ -60,6 +60,17 @@ export class StereoMeter {
     return a > 0 && b > 0 ? 10 * Math.log10(b / a) : null;
   }
 
+  // 1 s RMS of each channel in dBFS ([left, right], -Infinity for digital silence).
+  channelDb(samplesPerFrame) {
+    let a = 0, b = 0;
+    for (let i = 0; i < this.ring.length; i += 3) {
+      a += this.ring[i];
+      b += this.ring[i + 1];
+    }
+    const n = this.frames * samplesPerFrame;
+    return [a, b].map((s) => (s > 0 ? 10 * Math.log10(s / n) : -Infinity));
+  }
+
   get session() {
     return stereoFromSums(...this.total);
   }

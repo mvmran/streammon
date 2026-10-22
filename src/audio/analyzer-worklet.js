@@ -25,9 +25,9 @@ class StreamAnalyzerProcessor extends AudioWorkletProcessor {
       else if (e.data.type === 'hum-config') this.analyzer.setHumOptions(e.data.options);
       else if (e.data.type === 'finish') {
         this.analyzer.finish();
-        this.port.postMessage({ type: 'summary', summary: this.analyzer.summary() });
+        this.port.postMessage({ type: 'summary', id: e.data.id, summary: this.analyzer.summary() });
       } else if (e.data.type === 'summary') {
-        this.port.postMessage({ type: 'summary', summary: this.analyzer.summary() });
+        this.port.postMessage({ type: 'summary', id: e.data.id, summary: this.analyzer.summary() });
       }
     };
   }

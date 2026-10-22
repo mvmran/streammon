@@ -14,6 +14,7 @@ export const STEREO_OK = 'STEREO OK';
 export const WIDE = 'WIDE';
 export const UNBALANCED = 'UNBALANCED';
 export const PHASE_PROBLEM = 'PHASE PROBLEM';
+export const CHANNEL_DEAD = 'CHANNEL DEAD';
 
 // Rules for the one-word stereo status (rules of thumb; retune on a real stereo stream).
 export const STEREO_RULES = {
@@ -29,7 +30,22 @@ export const STEREO_RULES = {
   unbalancedDb: 3, // whole-mix level difference between the sides
   wideMedianCorr: 0.25, // median correlation of the judged bands below this is very wide
   holdFrames: 30, // a worse status is held for 3 s so the word doesn't flicker
+  // A channel is dead when the other carries sound (1 s RMS at least deadLiveDb) and it is
+  // at least deadGapDb quieter: an unplugged cable, a muted output, digital silence.
+  // No real mix is 30 dB louder on one side for seconds on end.
+  deadLiveDb: -50,
+  deadGapDb: 30,
 };
+
+// Which channel is dead ('left' / 'right'), or null. Levels are 1 s RMS in dBFS.
+export function deadChannel(leftDb, rightDb, rules = STEREO_RULES) {
+  if (Math.max(leftDb, rightDb) < rules.deadLiveDb) return null;
+  if (leftDb - rightDb >= rules.deadGapDb) return 'right';
+  if (rightDb - leftDb >= rules.deadGapDb) return 'left';
+  return null;
+}
+
+export const deadDetail = (side) => `${side === 'left' ? 'Left' : 'Right'} channel silent: only the ${side === 'left' ? 'right' : 'left'} carries sound`;
 
 function bandpass(fc, sampleRate) {
   const w = (2 * Math.PI * fc) / sampleRate;
@@ -151,8 +167,13 @@ export class StereoStatus {
   }
 
   // Returns { status, detail }; status is null when everything is too quiet to judge.
-  update(bands, mono, balanceDb) {
+  // dead: deadChannel()'s answer, which outranks everything else.
+  update(bands, mono, balanceDb, dead = null) {
     this.frame++;
+    if (dead) {
+      this.held = null;
+      return { status: CHANNEL_DEAD, detail: deadDetail(dead) };
+    }
     if (mono) {
       this.held = null;
       return { status: MONO, detail: 'Left and right identical' };
