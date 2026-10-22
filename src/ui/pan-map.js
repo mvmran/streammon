@@ -11,7 +11,7 @@ const ROWS = THIRD_OCTAVE_CENTRES.length;
 const EDGE = Math.pow(2, 1 / 6);
 const F_LO = THIRD_OCTAVE_CENTRES[0] / EDGE;
 const F_HI = THIRD_OCTAVE_CENTRES[ROWS - 1] * EDGE;
-const RANGE_DB = 45; // shown below the loudest cell
+const RANGE_DB = 35; // shown below the loudest cell (30 hid diffuse orchestral bass)
 const SMOOTH_S = 1; // time constant of the energy average
 const BAL_MARKS = [3, 6, 10, 20];
 // Same ramp as the spectrogram (dark surface -> blue -> near white).
@@ -139,7 +139,8 @@ export class PanMapView {
         }
       }
       ictx.putImageData(data, 0, 0);
-      ctx.imageSmoothingEnabled = true;
+      // Hard-edged cells: smoothing blurred blobs over the gaps between FFT bins.
+      ctx.imageSmoothingEnabled = false;
       // Cell centres span the plot: column 0 sits on the left edge, the last on the right.
       const cw = (p.r - p.l) / (COLS - 1);
       ctx.save();

@@ -159,6 +159,7 @@ async function main() {
     await page.waitForFunction(() => !document.getElementById('reset').disabled && /measuring afresh/.test(document.getElementById('log-body').textContent), null, { timeout: 5000 });
     check(true, 'Reset can be used again straight away');
     await page.waitForFunction(() => document.getElementById('status').textContent === 'CLIPPING', null, { timeout: 20000 });
+    await page.waitForFunction(() => /elapsed 0:(0[5-9]|[1-5]\d)/.test(document.getElementById('elapsed').textContent), null, { timeout: 10000 });
     check(true, `measuring resumes after Reset (${await page.textContent('#elapsed')})`);
     await page.click('#stop');
     check(!(await page.isDisabled('#export-csv')), 'CSV export available after stop');
