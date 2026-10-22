@@ -11,7 +11,7 @@ const ROWS = THIRD_OCTAVE_CENTRES.length;
 const EDGE = Math.pow(2, 1 / 6);
 const F_LO = THIRD_OCTAVE_CENTRES[0] / EDGE;
 const F_HI = THIRD_OCTAVE_CENTRES[ROWS - 1] * EDGE;
-const RANGE_DB = 35; // shown below the loudest cell (30 hid diffuse orchestral bass)
+const RANGE_DB = 45; // shown below the loudest cell (less hides diffuse orchestral bass)
 const SMOOTH_S = 1; // time constant of the energy average
 const BAL_MARKS = [3, 6, 10, 20];
 // Same ramp as the spectrogram (dark surface -> blue -> near white).
