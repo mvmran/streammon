@@ -3,17 +3,22 @@
 // itself is analysed in the offscreen document (offscreen.js), which outlives this
 // worker's idle shutdowns.
 
+import { YOUTUBE_HOSTS, isYouTubeUrl } from './player.js';
+
 const OFFSCREEN_URL = 'offscreen.html';
-const YOUTUBE_HOSTS = ['www.youtube.com', 'm.youtube.com'];
 const BADGE = {
   CLEAN: { text: 'OK', color: '#0ca30c' },
   LIMITED: { text: 'LIM', color: '#fab219' },
   CLIPPING: { text: 'CLIP', color: '#d03b3b' },
 };
 
+// The button is only enabled on YouTube pages: disabled everywhere by default, and the
+// declarativeContent rule below shows it on YouTube. The default is set on every start of
+// this worker, not just at install: a browser restart doesn't run onInstalled and may not
+// keep it, which left the button clickable on every site.
+chrome.action.disable();
+
 chrome.runtime.onInstalled.addListener(() => {
-  // The button is only enabled on YouTube pages.
-  chrome.action.disable();
   chrome.declarativeContent.onPageChanged.removeRules(undefined, () => {
     chrome.declarativeContent.onPageChanged.addRules([
       {
@@ -25,6 +30,11 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.action.onClicked.addListener((tab) => {
+  // Should the button ever be clickable elsewhere, still only monitor YouTube.
+  if (!isYouTubeUrl(tab.url)) {
+    notify('YouTube tabs only', 'Stream Audio Monitor works on YouTube pages. Open the stream on YouTube and click the button there.');
+    return;
+  }
   // Both calls must be made inside the click's user gesture, before anything is awaited.
   chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
   const streamId = chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id });

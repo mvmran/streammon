@@ -6,6 +6,21 @@
 // "content loudness" text are undocumented and may change, so they are best effort:
 // when they can't be read, the panel shows a reminder instead of a verdict.
 
+// The extension is limited to YouTube for now: the store listing and its host permissions
+// say so, although tab capture itself works on any tab (the toolbar click grants it).
+export const YOUTUBE_HOSTS = ['www.youtube.com', 'm.youtube.com'];
+
+// True for an https YouTube page. Other tabs' URLs are hidden from the extension (no host
+// permission), so they come through as undefined: not YouTube.
+export function isYouTubeUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && YOUTUBE_HOSTS.includes(u.host);
+  } catch {
+    return false;
+  }
+}
+
 // Runs inside the YouTube page (MAIN world). Must be self-contained.
 function readPlayerState() {
   const p = document.getElementById('movie_player');

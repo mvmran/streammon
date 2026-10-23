@@ -1,8 +1,8 @@
-// Logic tests for the extension's YouTube player check (no browser needed).
+// Logic tests for the extension's YouTube player check and site rule (no browser needed).
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { describePlayer } from '../extension/player.js';
+import { describePlayer, isYouTubeUrl } from '../extension/player.js';
 
 const levels = (p) => describePlayer(p).map((i) => i.level);
 
@@ -37,4 +37,13 @@ test('YouTube normalisation turning the stream down warns, with content loudness
 
 test('no normalisation applied is good', () => {
   assert.deepEqual(levels({ found: true, volume: 100, muted: false, loudness: '100% / 100% (content loudness -2.0dB)' }), ['good', 'good']);
+});
+
+test('only YouTube pages are monitored', () => {
+  assert.ok(isYouTubeUrl('https://www.youtube.com/watch?v=abc'));
+  assert.ok(isYouTubeUrl('https://m.youtube.com/live/abc'));
+  assert.ok(!isYouTubeUrl('https://lscroster.xyz/'));
+  assert.ok(!isYouTubeUrl('https://www.youtube.com.evil.example/'));
+  assert.ok(!isYouTubeUrl('http://www.youtube.com/'), 'https only, like the button rule');
+  assert.ok(!isYouTubeUrl(undefined), 'other sites: the URL is hidden from the extension');
 });
