@@ -78,6 +78,14 @@ async function main() {
     const st = await page.textContent('#status');
     check(['LIMITED', 'CLEAN'].includes(st), `playback status not clipping (${st})`);
     await page.screenshot({ path: join(OUT, 'file-mode.png'), fullPage: true });
+    // Rapid seeks: each clears the spectrum while a redraw may be pending (caught by the
+    // "no page errors" check at the end).
+    const tl = await page.locator('#timeline').boundingBox();
+    for (let i = 0; i < 30; i++) {
+      await page.mouse.click(tl.x + tl.width * (0.2 + 0.02 * i), tl.y + tl.height / 2);
+      await page.waitForTimeout(170 + (i % 5) * 23);
+    }
+    check(true, 'rapid seeks during playback');
     await page.click('#play'); // pause
 
     await page.hover('[data-help="integrated"]');

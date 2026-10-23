@@ -251,7 +251,11 @@ export class SpectrumView {
   clear() {
     this.octPower = null;
     this.balanceDb = null;
+    this.balanceAge = 0; // the first readings wait for half a second of the new average
     this.lastT = null;
+    // Nothing left to draw: a pending render() would read the cleared values.
+    this.dirty = false;
+    this.balanceDirty = false;
     this.thirdPower = null;
     this.levels = null;
     if (this.sg) {
@@ -489,6 +493,7 @@ export class SpectrumView {
 
   renderBalance() {
     this.balanceDirty = false;
+    if (!this.balanceDb) return;
     this.balanceRows.forEach((r, i) => {
       const d = this.balanceDb[i];
       if (!Number.isFinite(d)) return;
