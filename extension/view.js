@@ -141,8 +141,8 @@ const hub = connectHub({
   // Taken in as they arrive (one per 100 ms of audio), also while this page is hidden,
   // so the spectrogram has no gaps; drawn in tick().
   spectrum(m) {
-    if (spectrum) spectrum.updateData(m.data, m.sampleRate, 0.1, m.t);
-    if (panMap && m.left) panMap.update(m.left, m.right, m.sampleRate, 0.1);
+    if (spectrum) spectrum.updateData(m.data, m.sampleRate, m.t);
+    if (panMap && m.left && Number.isFinite(m.t)) panMap.update(m.left, m.right, m.sampleRate, m.t);
   },
   hum(m) {
     humView.render(m.hum);
@@ -168,13 +168,16 @@ function tick(now) {
 }
 requestAnimationFrame(tick);
 
+// Identifies this page's spectrum requests, so closing one dashboard doesn't stop another's.
+const VIEW_ID = crypto.randomUUID();
+
 // The offscreen document only sends spectrum data while someone asks for it: keep asking
 // while hidden too, so the spectrogram keeps filling behind other windows.
 if (spectrum) {
   setInterval(() => {
-    if (state.session && state.session.running) hub.send({ type: 'want-spectrum' });
+    if (state.session && state.session.running) hub.send({ type: 'want-spectrum', view: VIEW_ID });
   }, 1000);
-  window.addEventListener('pagehide', () => hub.send({ type: 'no-spectrum' }));
+  window.addEventListener('pagehide', () => hub.send({ type: 'no-spectrum', view: VIEW_ID }));
 }
 
 // ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@
 
 import { THIRD_OCTAVE_CENTRES } from '../dsp/bands.js';
 import { STEREO_RULES } from '../dsp/stereobands.js';
-import { css, fmtDb } from './format.js';
+import { css, fmtDb, frameStep } from './format.js';
 
 const COLS = 41; // pan cells, odd so the centre has its own column
 const ROWS = THIRD_OCTAVE_CENTRES.length;
@@ -58,6 +58,7 @@ export class PanMapView {
     this.cssHeight = Number(canvas.getAttribute('height')) || 260;
     this.lut = buildLut();
     this.grid = null; // smoothed energy per cell (row-major, row 0 = lowest band)
+    this.lastT = null; // audio-clock time of the latest frame (s)
     this.acc = new Float64Array(ROWS * COLS);
     this.img = document.createElement('canvas');
     this.img.width = COLS;
@@ -95,11 +96,15 @@ export class PanMapView {
 
   clear() {
     this.grid = null;
+    this.lastT = null;
     this.draw();
   }
 
-  // left, right: dB per FFT bin (AnalyserNode.getFloatFrequencyData) for each channel.
-  update(left, right, sampleRate, dt) {
+  // left, right: dB per FFT bin (AnalyserNode.getFloatFrequencyData) for each channel;
+  // t: the analyzer frame's audio-clock time (s), which times the average.
+  update(left, right, sampleRate, t) {
+    const dt = frameStep(this.lastT, t);
+    this.lastT = t;
     const acc = this.acc;
     acc.fill(0);
     const binHz = sampleRate / 2 / left.length;

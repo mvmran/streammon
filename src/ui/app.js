@@ -172,10 +172,13 @@ function setText(node, text) {
   if (node.textContent !== text) node.textContent = text;
 }
 
+// An analyzer frame's time on the timeline: the file position in file mode (the worklet
+// restarts at 0 on each seek), elapsed time otherwise.
+const frameTime = (f) => (state.mode === 'file' ? f.t + state.playOffset : f.t);
+
 function renderFrame(f) {
   meters.renderFrame(f);
-  const t = state.mode === 'file' ? f.t + state.playOffset : f.t;
-  setText(el.elapsed, `${state.mode === 'file' ? 'position' : 'elapsed'} ${fmtDuration(t)}`);
+  setText(el.elapsed, `${state.mode === 'file' ? 'position' : 'elapsed'} ${fmtDuration(frameTime(f))}`);
 }
 
 function resetReadouts() {
@@ -192,12 +195,13 @@ function redrawCharts() {
 function ingestSpectrum(f) {
   if (!engine.ctx || !engine.analyser) return;
   const sr = engine.ctx.sampleRate;
-  spectrum.update(engine.analyser, sr, 0.1, state.mode === 'file' ? f.t + state.playOffset : f.t);
+  const t = frameTime(f);
+  spectrum.update(engine.analyser, sr, t);
   const n = engine.analyserL.frequencyBinCount;
   if (!panL || panL.length !== n) [panL, panR] = [new Float32Array(n), new Float32Array(n)];
   engine.analyserL.getFloatFrequencyData(panL);
   engine.analyserR.getFloatFrequencyData(panR);
-  panMap.update(panL, panR, sr, 0.1);
+  panMap.update(panL, panR, sr, t);
 }
 
 let lastTick = performance.now();

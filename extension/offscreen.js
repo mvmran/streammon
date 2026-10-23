@@ -34,7 +34,8 @@ const s = {
   alerts: new AlertMonitor(loadAlertConfig()),
 };
 let testAudio = null;
-let spectrumUntil = 0;
+const spectrumWanted = new Map(); // view id -> Date.now() until which it wants spectrum data
+let spectrumBufs = null; // reused: the BroadcastChannel copies them anyway
 
 const engine = new AudioEngine({
   onFrame,
@@ -190,9 +191,12 @@ const SPECTRUM_KEEP_MS = 75000;
 // One spectrum message per analyzer frame (100 ms of audio), stamped with the frame's
 // audio-clock time so the dashboard's spectrogram rows are evenly spaced.
 function sendSpectrum(f) {
-  if (Date.now() > spectrumUntil || !engine.analyser) return;
+  const now = Date.now();
+  for (const [view, until] of spectrumWanted) if (until < now) spectrumWanted.delete(view);
+  if (!spectrumWanted.size || !engine.analyser) return;
   const n = engine.analyser.frequencyBinCount;
-  const data = new Float32Array(n), left = new Float32Array(n), right = new Float32Array(n);
+  if (!spectrumBufs || spectrumBufs[0].length !== n) spectrumBufs = [0, 1, 2].map(() => new Float32Array(n));
+  const [data, left, right] = spectrumBufs;
   engine.analyser.getFloatFrequencyData(data);
   engine.analyserL.getFloatFrequencyData(left);
   engine.analyserR.getFloatFrequencyData(right);
@@ -220,9 +224,9 @@ channel.onmessage = async (e) => {
     const title = m.what === 'peaks' ? 'True peak max reset' : 'Integrated loudness reset';
     addLog({ clock: fmtClock(new Date()), t: s.lastRow ? s.lastRow.t : 0, kind: 'info', title, detail: 'measuring again from here' });
   } else if (m.type === 'want-spectrum') {
-    spectrumUntil = Date.now() + SPECTRUM_KEEP_MS;
+    spectrumWanted.set(m.view || 'view', Date.now() + SPECTRUM_KEEP_MS);
   } else if (m.type === 'no-spectrum') {
-    spectrumUntil = 0;
+    spectrumWanted.delete(m.view || 'view');
   } else if (m.type === 'get-csv') {
     broadcast({ type: 'reply', id: m.id, name: `${exportBase()}.csv`, text: recorder.csv() });
   } else if (m.type === 'get-json') {

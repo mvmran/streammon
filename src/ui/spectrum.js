@@ -3,7 +3,7 @@
 // display (measurements use raw samples).
 
 import { thirdOctaveLevels, THIRD_OCTAVE_CENTRES, bandLevels, OCTAVE_CENTRES } from '../dsp/bands.js';
-import { css, fmtDb } from './format.js';
+import { css, fmtDb, frameStep } from './format.js';
 
 const DB_MIN = -100;
 const DB_MAX = -10;
@@ -59,6 +59,7 @@ export class SpectrumView {
     this.sgFloor = DB_MIN; // spectrogram colour floor (dB), set from the display settings
     this.data = null;
     this.levels = null; // latest 1/3-octave levels (dB)
+    this.lastT = null; // audio-clock time of the latest frame (s)
     this.octPower = null; // smoothed linear power per octave
     this.thirdPower = null; // smoothed linear power per 1/3 octave (the average line)
     this.bandHover = null; // { i, e } while the pointer is over a bar
@@ -250,6 +251,7 @@ export class SpectrumView {
   clear() {
     this.octPower = null;
     this.balanceDb = null;
+    this.lastT = null;
     this.thirdPower = null;
     this.levels = null;
     if (this.sg) {
@@ -264,16 +266,20 @@ export class SpectrumView {
     }
   }
 
-  // One analyzer frame. dt: seconds of audio since the last one (for the averages);
-  // t: the frame's time on the audio clock (s), which places the spectrogram row.
-  update(analyser, sampleRate, dt, t) {
+  // One analyzer frame. t: the frame's time on the audio clock (s), which places the
+  // spectrogram row and times the averages.
+  update(analyser, sampleRate, t) {
     if (!this.data || this.data.length !== analyser.frequencyBinCount) this.data = new Float32Array(analyser.frequencyBinCount);
     analyser.getFloatFrequencyData(this.data);
-    this.updateData(this.data, sampleRate, dt, t);
+    this.updateData(this.data, sampleRate, t);
   }
 
-  // Same as update() for spectrum data (dB per FFT bin) obtained elsewhere.
-  updateData(data, sampleRate, dt, t) {
+  // Same as update() for spectrum data (dB per FFT bin) obtained elsewhere. Data without a
+  // frame time is dropped: its row couldn't be placed on the audio clock.
+  updateData(data, sampleRate, t) {
+    if (!Number.isFinite(t)) return;
+    const dt = frameStep(this.lastT, t);
+    this.lastT = t;
     this.data = data;
     this.levels = thirdOctaveLevels(data, sampleRate);
     const power = this.levels.map((l) => Math.pow(10, l / 10));
@@ -289,6 +295,7 @@ export class SpectrumView {
   render() {
     if (!this.dirty) return;
     this.dirty = false;
+    if (this.balanceDirty) this.renderBalance();
     this.drawBands();
     this.drawSpectrogram();
     if (this.bandHover) this.showBandTip();
@@ -382,7 +389,7 @@ export class SpectrumView {
     }
     sg.head = (sg.head + 1) % sg.rows;
     sg.count = Math.min(sg.rows, sg.count + 1);
-    sg.times[sg.head] = Number.isFinite(t) ? t : performance.now() / 1000;
+    sg.times[sg.head] = t;
     const base = sg.head * sg.cols;
     const px = sg.row.data;
     for (let x = 0; x < sg.cols; x++) {
@@ -469,13 +476,19 @@ export class SpectrumView {
     const a = 1 - Math.exp(-dt / 5);
     if (!this.octPower) this.octPower = power;
     else this.octPower = this.octPower.map((p, i) => p + (power[i] - p) * a);
-    // The average updates every call; the bars only twice a second (DOM layout is costly).
+    // The average updates every frame; the readings only twice a second (DOM layout is
+    // costly), and the bars are written in render(), so not while the page is hidden.
     this.balanceAge = (this.balanceAge || 0) + dt;
     if (this.balanceAge < 0.5) return;
     this.balanceAge = 0;
     const ref = 10 * Math.log10(this.octPower[OCTAVE_CENTRES.indexOf(500)]);
     // Kept for the labels on the spectrum's average line, so both show the same numbers.
     this.balanceDb = this.balanceRows.map((r, i) => 10 * Math.log10(this.octPower[i]) - ref);
+    this.balanceDirty = true;
+  }
+
+  renderBalance() {
+    this.balanceDirty = false;
     this.balanceRows.forEach((r, i) => {
       const d = this.balanceDb[i];
       if (!Number.isFinite(d)) return;
