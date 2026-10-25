@@ -30,6 +30,7 @@ export const STEREO_RULES = {
   unbalancedDb: 3, // whole-mix level difference between the sides
   wideMedianCorr: 0.25, // median correlation of the judged bands below this is very wide
   holdFrames: 30, // a worse status is held for 3 s so the word doesn't flicker
+  logSeconds: 10, // a new status is logged once it has lasted this long (shorter swings aren't)
   // A channel is dead when the other carries sound (1 s RMS at least deadLiveDb) and it is
   // at least deadGapDb quieter: an unplugged cable, a muted output, digital silence.
   // No real mix is 30 dB louder on one side for seconds on end.

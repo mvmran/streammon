@@ -6,6 +6,7 @@ import { StereoBands, StereoStatus, MONO, STEREO_OK, WIDE, UNBALANCED, PHASE_PRO
 import { StreamAnalyzer } from '../src/dsp/analyzer.js';
 import { AlertMonitor } from '../src/dsp/alerts.js';
 import { csvHeader, csvRow } from '../src/dsp/report.js';
+import { EventLog } from '../src/ui/log.js';
 
 const SR = 48000;
 
@@ -164,6 +165,23 @@ test('the analyzer flags a dead channel in frames and rows (the file worker too)
   assert.match(fileRows.at(-1).stereoDetail, /^Left channel silent/);
 });
 
+test('stereo status changes are logged once they last 10 s, dated from their start', () => {
+  const changes = (L, R) => {
+    const out = [];
+    new StreamAnalyzer(SR, { onFrame() {}, onEvent: (e) => e.type === 'stereo' && out.push(e) }).process(L, R);
+    return out;
+  };
+  const long = changes(...flipped(42, 15, 30));
+  assert.deepEqual(long.map((e) => e.status), [MONO, PHASE_PROBLEM, MONO]);
+  assert.ok(long[1].t >= 15 && long[1].t <= 18, `phase problem dated ${long[1].t} s`);
+  assert.match(long[1].detail, /^Out of phase/);
+  assert.equal(long[1].previous, MONO);
+  const entry = EventLog.fromEvent(long[2], '10:00:00');
+  assert.equal(entry.title, 'Stereo: MONO');
+  assert.match(entry.detail, /was PHASE PROBLEM for 0:1\d/);
+  assert.deepEqual(changes(...flipped(30, 10, 15)).map((e) => e.status), [MONO], 'a 5 s swing is not logged');
+});
+
 test('a worse stereo status is held for 3 s', () => {
   const st = new StereoStatus();
   const ok = bands(0.8), bad = bands([1, 1, 0.9, 0.8, 0.7, 0.6, -0.6, 0.5, 0.4, 0.3]);
@@ -203,6 +221,8 @@ test('frames and rows carry the stereo status; the CSV has it', () => {
   assert.equal(rows.at(-1).stereoStatus, PHASE_PROBLEM);
   assert.ok(csvHeader().includes('stereo_status'));
   assert.ok(csvRow(rows.at(-1)).includes('PHASE PROBLEM'));
+  assert.ok(csvHeader().includes('stereo_detail'));
+  assert.ok(csvRow(rows.at(-1)).includes('Out of phase: 4k'), csvRow(rows.at(-1)));
   // Identical channels read MONO even in the file worker, which skips the band filters.
   const fileRows = [];
   const fa = new StreamAnalyzer(SR, { onSecond: (r) => fileRows.push(r) });

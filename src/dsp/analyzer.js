@@ -9,6 +9,7 @@
 //   onHum(result)    every 0.5 s: mains hum measurement (see hum.js), with audibility
 //   onEvent(event)   clip status changes: { type: 'start' | 'end', status, t, ... };
 //                    hum: { type: 'hum-onset' | 'hum-offset' | 'hum-step' | 'hum-config', t, ... }
+//                    stereo status changes: { type: 'stereo', t, status, detail, previous, previousSeconds }
 
 import { LoudnessMeter } from './loudness.js';
 import { TruePeakChannel } from './truepeak.js';
@@ -74,6 +75,7 @@ export class StreamAnalyzer {
     this.lastClip = null;
     this.status = CLEAN;
     this.episode = null;
+    this.stereoLog = { candidate: null, since: 0, logged: null, loggedSince: 0 };
     this.events = 0;
   }
 
@@ -215,7 +217,23 @@ export class StreamAnalyzer {
       humSignature: h && h.present ? h.signature : null,
     };
     this.s = { peak: 0, tp: 0 };
+    this.trackStereo(row.stereoStatus, row.stereoDetail, t);
     if (this.onSecond) this.onSecond(row);
+  }
+
+  // Reports a stereo status change once the new status has lasted STEREO_RULES.logSeconds,
+  // dated from when it began. Seconds that are too quiet to judge (no status) are skipped.
+  trackStereo(status, detail, t) {
+    if (!status) return;
+    const s = this.stereoLog;
+    if (status !== s.candidate) {
+      s.candidate = status;
+      s.since = Math.max(0, t - 1);
+    }
+    if (status === s.logged || t - s.since < STEREO_RULES.logSeconds) return;
+    this.emit({ type: 'stereo', t: s.since, status, detail, previous: s.logged, previousSeconds: s.logged ? s.since - s.loggedSince : 0 });
+    s.logged = status;
+    s.loggedSince = s.since;
   }
 
   // Reports status episodes: a 'start' when the status worsens or changes, and an

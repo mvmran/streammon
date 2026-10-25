@@ -1,4 +1,5 @@
-// Event log panel: clip/limit episodes and alerts, newest first. Bounded in the DOM.
+// Event log panel: clip/limit episodes, hum and stereo changes, and alerts, newest first.
+// Bounded in the DOM.
 
 import { fmtDb, fmtDuration, escapeHtml } from './format.js';
 
@@ -27,7 +28,7 @@ export class EventLog {
     this.empty.hidden = false;
   }
 
-  // entry: { clock, t, kind: 'CLIPPING' | 'LIMITED' | 'alert' | 'info', title, ceilingDb, detail, seekable }
+  // entry: { clock, t, kind: 'CLIPPING' | 'LIMITED' | 'CLEAN' | 'hum' | 'stereo' | 'alert' | 'info', title, ceilingDb, detail, seekable }
   add(entry) {
     this.entries.push(entry);
     if (this.entries.length > MAX_KEPT) this.entries.shift();
@@ -46,6 +47,7 @@ export class EventLog {
   // Converts an analyzer status event to a log entry.
   static fromEvent(e, clock, seekable = false) {
     if (e.type.startsWith('hum-')) return EventLog.fromHumEvent(e, clock, seekable);
+    if (e.type === 'stereo') return EventLog.fromStereoEvent(e, clock, seekable);
     const det = e.detectors.map((d) => DETECTOR_NAMES[d] || d).join(' + ');
     if (e.type === 'start') {
       return {
@@ -67,6 +69,11 @@ export class EventLog {
       detail: [`lasted ${fmtDuration(e.duration)}`, det && `detectors: ${det}`, e.fullScaleSamples ? `${e.fullScaleSamples} full-scale samples` : ''].filter(Boolean).join(' · '),
       seekable,
     };
+  }
+
+  static fromStereoEvent(e, clock, seekable = false) {
+    const was = e.previous ? `was ${e.previous} for ${fmtDuration(e.previousSeconds)}` : '';
+    return { clock, t: e.t, kind: 'stereo', title: `Stereo: ${e.status}`, detail: [e.detail, was].filter(Boolean).join(' · '), seekable };
   }
 
   static fromHumEvent(e, clock, seekable = false) {

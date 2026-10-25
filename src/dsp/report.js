@@ -15,6 +15,7 @@ export const CSV_COLUMNS = [
   ['side_mid_db', (r) => num(r.sideMidDb)],
   ['balance_db', (r) => num(r.stereoBalanceDb)],
   ['stereo_status', (r) => r.stereoStatus || ''],
+  ['stereo_detail', (r) => r.stereoDetail || ''],
   ['status', (r) => r.status],
   ['detectors', (r) => (r.detectors || []).join('+')],
   ['dwell_runs_per_s', (r) => num(r.dwellRate)],

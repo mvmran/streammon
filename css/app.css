@@ -232,6 +232,7 @@ table.log { width: 100%; border-collapse: collapse; font-size: 0.85rem; font-var
 .ev-CLEAN::before { background: var(--good); }
 .ev-alert::before { background: var(--serious); border-radius: 50%; }
 .ev-hum::before { background: var(--serious); }
+.ev-stereo::before { background: var(--series-1); }
 .empty { margin: 8px; }
 
 .detectors dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; font-size: 0.85rem; }

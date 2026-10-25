@@ -30,7 +30,7 @@ export const HELP = {
   balance:
     'Average level of each octave compared with the 500 Hz band, over about 5 seconds. It is normal for the top octaves to be 10–20 dB below 500 Hz. Look for one band sticking out, or for changes during the service.',
   log:
-    'Every time clipping or limiting starts or ends, and every alert, with the clock time, the ceiling level in dBFS and which detector fired. Export it with the CSV/JSON buttons. For a file, click an entry to listen from just before it.',
+    'Every time clipping or limiting starts or ends, mains hum appears or goes, the Stereo word changes and stays changed for 10 s, and every alert, with the clock time (when it began), the ceiling level in dBFS and which detector fired. The JSON export includes the log; the CSV has the stereo word and its reason every second. For a file, click an entry to listen from just before it.',
   detectors:
     'The numbers behind the status, for checking or tuning. Dwell: how often the audio lingers within 1 dB of its ceiling. Pile-up: whether samples crowd against a hard wall at that ceiling (the sign of clipping). Peaks pinned: share of peaks held at the ceiling (the sign of limiting). Full-scale runs: samples stuck at 0 dBFS.',
   hum:
