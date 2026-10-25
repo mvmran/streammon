@@ -156,6 +156,11 @@ Each octave band (31 Hz – 16 kHz) is filtered by two cascaded RBJ band-pass bi
   - the `#peaks` height is chosen so the peak chart matches the loudness history (which also draws the stereo correlation, on a right-hand scale).
   - After changing either column, re-measure in a browser and adjust that height.
   - Also update the size limit in the "spectrum canvases keep their size" checks in `test/e2e.mjs` and `test/e2e-extension.mjs`.
+- **Top row widths are measured too** (`.readouts` in `css/app.css`). From 101.25em (1620 px) up, each card's width fits its widest line with worst-case readings and chips, measured with DejaVu Sans, which is wider than Segoe UI. With those widths no line wraps, so the row never changes height.
+  - The four number cards share one width so their numbers stay the same size.
+  - Clipping status and Stereo share what's left.
+  - Narrower windows use the old auto-fit grid, with room for two lines kept for the Stereo line.
+  - After changing a card's text (status or stereo `detail` strings, chips, labels), re-measure the widest lines and adjust the `minmax` values.
 - **Hover help:** every meter tile and panel heading carries `data-help="<key>"`. In the extension side panel, `setupHelp(doc, { iconOnly: true })` replaces the CSS-drawn (i) icons with real `.help-icon` elements, and help shows only while the pointer is on one; on the user's request it no longer pops up over the readings there. The volunteer-facing text for each key lives only in `HELP` in `src/ui/help.js`, shared by all three pages. `test/help.test.js` fails if a card has no key or a key has no text.
 - **Styling:**
   - The UI is dark-only.

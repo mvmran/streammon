@@ -102,7 +102,7 @@ test('stereo status words', () => {
   assert.match(unb.detail, /4\.2 dB louder on the left/);
   const ph = s().update(bands([1, 1, 0.9, 0.8, 0.7, 0.6, -0.6, -0.5, 0.4, 0.3]), false, 0);
   assert.equal(ph.status, PHASE_PROBLEM);
-  assert.match(ph.detail, /^2k, 4k out of phase/);
+  assert.match(ph.detail, /^Out of phase: 2k, 4k$/);
   // Quiet bands (mic hiss) are not judged.
   assert.equal(s().update(bands(-0.5, { levelDb: -85 }), false, 0).status, null);
   // A negative band 25 dB below the loudest is not a phase problem.
@@ -179,7 +179,7 @@ test('stereo alerts: phase after 5 s, imbalance after 15 s, mono only when asked
   const row = (t, stereoStatus, stereoDetail = 'x') => ({ t, status: 'CLEAN', stereoStatus, stereoDetail, shortTerm: -20, truePeakDb: -6, integrated: -14 });
   const m = new AlertMonitor();
   let r;
-  for (let t = 1; t <= 5; t++) r = m.update(row(t, PHASE_PROBLEM, '2k out of phase: cancels in mono'));
+  for (let t = 1; t <= 5; t++) r = m.update(row(t, PHASE_PROBLEM, 'Out of phase: 2k'));
   assert.deepEqual(r.raised.map((a) => a.id), ['stereoPhase']);
   const u = new AlertMonitor();
   for (let t = 1; t <= 14; t++) assert.equal(u.update(row(t, UNBALANCED)).raised.length, 0);

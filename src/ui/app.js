@@ -182,7 +182,7 @@ function renderFrame(f) {
 }
 
 function resetReadouts() {
-  meters.reset(state.mode === 'file' ? 'Play the file to see live meters' : 'Start a source to begin');
+  meters.reset(state.mode === 'file' ? 'Press Play to see the meters' : 'Start a source to begin');
 }
 
 function redrawCharts() {

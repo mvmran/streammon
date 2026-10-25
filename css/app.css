@@ -157,6 +157,19 @@ main { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 12px
 .status-tile[data-status='LIMITED'] { background: #7a5406; border-color: var(--warning); }
 .status-tile[data-status='CLIPPING'] { background: #9e1f1f; border-color: var(--critical); }
 @media (max-width: 560px) { .status-tile { grid-column: span 1; } }
+/* Wide windows: no line in the row wraps, so the row keeps its height. Widths fit the widest
+   line with worst-case readings and chips, measured with DejaVu Sans (wider than Segoe UI).
+   The four number cards share one width (that of Short-term and True peak, whose lines are
+   longest) so their numbers stay the same size; the rest goes to Clipping status and Stereo. */
+@media (min-width: 101.25em) {
+  .readouts { grid-template-columns: minmax(17.75rem, 1.9fr) repeat(4, 15.125rem) minmax(15.75rem, 1.55fr); }
+  .status-tile { grid-column: auto; }
+  .status-tile .big { font-size: clamp(1.8rem, 14cqi, 4rem); }
+}
+/* Narrower windows: the Stereo line can need two lines, so it always keeps room for two. */
+@media (max-width: 101.24em) {
+  #stereo-detail { min-height: 2.6em; }
+}
 
 .badge { display: inline-block; font-size: 0.6em; padding: 2px 12px; border-radius: 6px; border: 2px solid var(--axis); color: var(--text-2); }
 .badge.mono { border-color: var(--text); color: var(--text); }

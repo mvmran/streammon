@@ -141,10 +141,10 @@ export function bindMeterResets({ isRunning, onResetPeaks, onResetIntegrated }, 
 export function statusDetail(row) {
   if (row.status === 'CLIPPING') {
     return row.detectors.includes('fullscale')
-      ? `Hitting digital full scale (${row.fullScaleSamples} samples this second)`
-      : `Flat tops at ${fmtDb(row.ceilingDb)} dBFS · ${row.dwellRate.toFixed(0)} plateaus/s`;
+      ? `Hitting 0 dBFS: ${row.fullScaleSamples} samples/s`
+      : `Flat tops at ${fmtDb(row.ceilingDb)} dBFS · ${row.dwellRate.toFixed(0)}/s`;
   }
-  if (row.status === 'LIMITED') return `Peaks held at ${fmtDb(row.ceilingDb)} dBFS by a limiter · not clipping`;
+  if (row.status === 'LIMITED') return `Limiter holding peaks at ${fmtDb(row.ceilingDb)} dBFS`;
   return 'No flat-topping detected';
 }
 

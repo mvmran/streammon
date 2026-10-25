@@ -45,7 +45,7 @@ export function deadChannel(leftDb, rightDb, rules = STEREO_RULES) {
   return null;
 }
 
-export const deadDetail = (side) => `${side === 'left' ? 'Left' : 'Right'} channel silent: only the ${side === 'left' ? 'right' : 'left'} carries sound`;
+export const deadDetail = (side) => `${side === 'left' ? 'Left' : 'Right'} channel silent`;
 
 function bandpass(fc, sampleRate) {
   const w = (2 * Math.PI * fc) / sampleRate;
@@ -153,6 +153,12 @@ export class StereoBands {
 const SEVERITY = { [STEREO_OK]: 0, [WIDE]: 1, [UNBALANCED]: 2, [PHASE_PROBLEM]: 3 };
 const labelHz = (f) => (f >= 1000 ? `${Math.round(f / 100) / 10}k` : String(Math.round(f)));
 
+// Short enough for one line on the Stereo card: up to three bands by name, more as a range.
+const phaseDetail = (flipped) =>
+  flipped.length <= 3
+    ? `Out of phase: ${flipped.map((b) => labelHz(b.fc)).join(', ')}`
+    : `Out of phase: ${flipped.length} bands, ${labelHz(flipped[0].fc)}–${labelHz(flipped.at(-1).fc)}`;
+
 // One word for volunteers, from the per-band readings (StereoBands.over(windowFrames)),
 // whether the channels are identical, and the whole-mix balance. Call once per 100 ms frame.
 export class StereoStatus {
@@ -196,13 +202,13 @@ export class StereoStatus {
     const top = Math.max(...valid.map((b) => b.levelDb));
     const judged = valid.filter((b) => b.levelDb >= top - r.judgeRangeDb);
     const flipped = judged.filter((b) => b.fc >= r.phaseMinHz && b.correlation < r.phaseCorr && b.levelDb >= top - r.phaseRangeDb);
-    if (flipped.length) return { status: PHASE_PROBLEM, detail: `${flipped.map((b) => labelHz(b.fc)).join(', ')} out of phase: cancels in mono` };
+    if (flipped.length) return { status: PHASE_PROBLEM, detail: phaseDetail(flipped) };
     if (balanceDb !== null && Math.abs(balanceDb) > r.unbalancedDb) {
-      return { status: UNBALANCED, detail: `Mix ${Math.abs(balanceDb).toFixed(1)} dB louder on the ${balanceDb < 0 ? 'left' : 'right'}` };
+      return { status: UNBALANCED, detail: `${Math.abs(balanceDb).toFixed(1)} dB louder on the ${balanceDb < 0 ? 'left' : 'right'}` };
     }
     const corr = judged.map((b) => b.correlation).sort((a, b) => a - b);
     const median = corr.length % 2 ? corr[(corr.length - 1) / 2] : (corr[corr.length / 2 - 1] + corr[corr.length / 2]) / 2;
-    if (median < r.wideMedianCorr) return { status: WIDE, detail: `Most bands near 0 correlation (median ${median.toFixed(2)})` };
-    return { status: STEREO_OK, detail: 'Balanced, positive correlation' };
+    if (median < r.wideMedianCorr) return { status: WIDE, detail: `Median band correlation ${median.toFixed(2)}` };
+    return { status: STEREO_OK, detail: 'Balanced, in phase' };
   }
 }
