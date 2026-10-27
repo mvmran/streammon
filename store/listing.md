@@ -37,7 +37,7 @@ WHAT IT MEASURES
 
 ALERTS AND RECORDS
 • Banner and Chrome notification alerts for clipping, true peak above -1 dBTP, sustained loudness above -10 LUFS, integrated loudness far from -14 LUFS, mains hum, a dead channel (one side silent), and stereo phase or balance problems (all adjustable; optional beep, off by default)
-• Timestamped event log
+• Timestamped event log, including changes in the stereo status
 • Reset: clear the readings, charts and log for a new song or section without stopping monitoring
 • Export the session as CSV (one row per second) or a JSON summary
 • Hover the ⓘ on any card for a plain-language explanation
