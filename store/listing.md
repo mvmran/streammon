@@ -47,6 +47,9 @@ All analysis happens inside your browser. No audio or data is uploaded, and the 
 
 Note: YouTube audio reaches viewers 5–30 seconds after it leaves the mixing desk, so alerts reflect what viewers heard a few seconds ago.
 
+WHAT'S NEW
+Release notes for every version: https://github.com/mvmran/streammon/releases
+
 Free and open source (GPL-3.0): https://github.com/mvmran/streammon
 ```
 
