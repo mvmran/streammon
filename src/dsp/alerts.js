@@ -82,9 +82,13 @@ export class AlertMonitor {
     this.run.stereoBalance = row.stereoStatus === 'UNBALANCED' ? this.run.stereoBalance + 1 : 0;
     this.run.stereoMono = row.stereoStatus === 'MONO' ? this.run.stereoMono + 1 : 0;
     this.run.stereoDead = row.stereoStatus === 'CHANNEL DEAD' ? this.run.stereoDead + 1 : 0;
-    if (sc.enabled && this.run.stereoDead >= sc.deadSeconds) out.stereoDead = `${row.stereoDetail} (${this.run.stereoDead} s)`;
-    if (sc.enabled && this.run.stereoPhase >= sc.phaseSeconds) out.stereoPhase = `${row.stereoDetail} (${this.run.stereoPhase} s)`;
-    if (sc.enabled && this.run.stereoBalance >= sc.unbalancedSeconds) out.stereoBalance = `${row.stereoDetail} (${this.run.stereoBalance} s)`;
+    // The Stereo card's short reason, with the consequence spelled out for the banner and
+    // the desktop notification.
+    if (sc.enabled && this.run.stereoDead >= sc.deadSeconds) {
+      out.stereoDead = `${row.stereoDetail}: only the ${/^Left/.test(row.stereoDetail) ? 'right' : 'left'} side carries sound (${this.run.stereoDead} s)`;
+    }
+    if (sc.enabled && this.run.stereoPhase >= sc.phaseSeconds) out.stereoPhase = `${row.stereoDetail}: cancels on mono speakers and phones (${this.run.stereoPhase} s)`;
+    if (sc.enabled && this.run.stereoBalance >= sc.unbalancedSeconds) out.stereoBalance = `${/^\d/.test(row.stereoDetail) ? 'Whole mix ' : ''}${row.stereoDetail} (${this.run.stereoBalance} s)`;
     if (sc.enabled && sc.mono && this.run.stereoMono >= sc.monoSeconds) out.stereoMono = `Left and right identical for ${this.run.stereoMono} s`;
     const io = c.integratedOff;
     // Time since integrated loudness was last reset (rows from before that field: since start).

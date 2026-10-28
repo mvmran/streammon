@@ -7,7 +7,7 @@ import { AudioEngine } from './src/audio/engine.js';
 import { streamSampleRate } from './src/audio/sources.js';
 import { AlertMonitor, ALERT_LABELS, humOptionsFrom } from './src/dsp/alerts.js';
 import { summaryJson } from './src/dsp/report.js';
-import { EventLog } from './src/ui/log.js';
+import { EventLog, insertByTime } from './src/ui/log.js';
 import { SessionRecorder } from './src/ui/session.js';
 import { loadAlertConfig } from './src/ui/settings.js';
 import { fmtClock, fmtStamp, fileStamp } from './src/ui/format.js';
@@ -94,7 +94,7 @@ function onEvent(e) {
 }
 
 function addLog(entry) {
-  s.log.push(entry);
+  insertByTime(s.log, entry); // in time order, for the JSON export
   if (s.log.length > LOG_MAX) s.log.shift();
   broadcast({ type: 'log', entry });
 }

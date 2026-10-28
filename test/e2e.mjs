@@ -119,6 +119,15 @@ async function main() {
     check(/Clipping started/.test(logText), 'clipping event logged');
     check(/Alert: Clipping/.test(logText), 'clipping alert raised');
     check(await page.isVisible('.alert'), 'alert banner shown');
+    // Banners update every second: the × must stay the same element (a replaced one under
+    // the pointer between mouse down and up loses the click), and clicking it dismisses.
+    const firstId = await page.locator('.alert').first().getAttribute('data-id');
+    const button = await page.locator('.alert button').first().elementHandle();
+    await page.waitForTimeout(1500);
+    check(await button.evaluate((b) => b.isConnected), 'banners are updated in place, not rebuilt');
+    await button.click();
+    const ids = await page.$$eval('.alert', (d) => d.map((x) => x.dataset.id));
+    check(firstId && !ids.includes(firstId), `× dismisses the banner (${firstId}; left: ${ids.join(', ') || 'none'})`);
     const ceil = num(await page.textContent('#d-ceil'));
     check(ceil < -2.5 && ceil > -4.5, `ceiling about −3.4 to −3.9 dBFS (${ceil})`);
     await page.click('#tp-tile');
@@ -152,7 +161,16 @@ async function main() {
     await page.screenshot({ path: join(OUT, 'device-mode.png'), fullPage: true });
     // A stand-in save dialog, so "Record CSV to disk" can run headless.
     await page.evaluate(() => {
-      window.showSaveFilePicker = async () => ({ name: 'test.csv', createWritable: async () => ({ write: async () => {}, close: async () => (window.csvClosed = true) }) });
+      // Like Chrome, what is written only reaches the "file" when the stream is closed.
+      window.csvFile = '';
+      window.showSaveFilePicker = async () => ({
+        name: 'test.csv',
+        getFile: async () => new Blob([window.csvFile]),
+        createWritable: async ({ keepExistingData = false } = {}) => {
+          let data = keepExistingData ? window.csvFile : '';
+          return { seek: async () => {}, write: async (t) => (data += t), close: async () => (window.csvFile = data), abort: async () => {} };
+        },
+      });
     });
     await page.click('#record-disk');
     await page.waitForFunction(() => /Recording to test\.csv/.test(document.getElementById('record-disk').textContent), null, { timeout: 5000 });
@@ -167,8 +185,9 @@ async function main() {
     check(!/True peak max reset|Alert: Clipping/.test(logAfterClear) && !(await page.isVisible('.alert')), 'Reset clears the log and alerts');
     check(!(await page.isVisible('#error')), `Reset works with the pointer on a chart (${await page.textContent('#error')})`);
     await page.mouse.move(0, 0);
-    const diskStopped = await page.evaluate(() => window.csvClosed === true && !/Recording/.test(document.getElementById('record-disk').textContent));
-    check(diskStopped && /recording to test\.csv stopped/.test(logAfterClear), 'Reset stops recording the CSV to disk (logged)');
+    const disk = await page.evaluate(() => ({ lines: window.csvFile.trim().split('\n').length, header: window.csvFile.startsWith('wall_clock,'), stopped: !/Recording/.test(document.getElementById('record-disk').textContent) }));
+    check(disk.stopped && /recording to test\.csv stopped/.test(logAfterClear), 'Reset stops recording the CSV to disk (logged)');
+    check(disk.header && disk.lines > 2, `the rows reached the file on disk (${disk.lines} lines)`);
     await page.waitForFunction(() => !document.getElementById('reset').disabled, null, { timeout: 3000 });
     await page.click('#reset');
     await page.waitForFunction(() => !document.getElementById('reset').disabled && /measuring afresh/.test(document.getElementById('log-body').textContent), null, { timeout: 5000 });

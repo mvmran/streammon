@@ -268,6 +268,7 @@ async function refreshDevices(preferId) {
 }
 
 function setMode(mode) {
+  if (mode !== 'file') cancelFileAnalysis();
   state.mode = mode;
   el.deviceField.hidden = mode !== 'device';
   el.tabReminder.hidden = mode !== 'tab';
@@ -282,6 +283,7 @@ function setMode(mode) {
 
 async function startLive() {
   if (!state.exported && recorder.count > 60 && !confirm('Start a new session? The current session will be cleared, so export it first if you need it.')) return;
+  cancelFileAnalysis();
   showError('');
   el.start.disabled = true;
   try {
@@ -339,7 +341,7 @@ async function resetLive() {
   if (secs > RESET_CONFIRM_SECONDS && !confirm(`Reset and clear the last ${Math.round(secs / 60)} minutes of readings, event log and CSV data? Export first if you need them.`)) return;
   el.reset.disabled = true;
   try {
-    const recording = recorder.writer ? recorder.fileName : null;
+    const recording = recorder.recording ? recorder.fileName : null;
     if (recording) {
       await recorder.stopDisk();
       updateRecordButton();
@@ -400,8 +402,21 @@ function createTimeline() {
   el.fileResult.hidden = true;
 }
 
+// The file being decoded and analysed, if any: an AbortController. A newer file, a live
+// start or leaving File mode cancels it, so its result can't replace a later session.
+let fileJob = null;
+
+function cancelFileAnalysis() {
+  if (!fileJob) return;
+  fileJob.abort();
+  fileJob = null;
+  el.fileProgress.hidden = true;
+}
+
 async function handleFile(file) {
   if (!file) return;
+  cancelFileAnalysis();
+  const job = (fileJob = new AbortController());
   if (state.running) await stopLive();
   state.playing = false;
   await engine.close();
@@ -415,9 +430,11 @@ async function handleFile(file) {
   label.textContent = `Decoding ${file.name}…`;
   try {
     const buffer = await decodeFile(file);
+    if (job.signal.aborted) return;
     label.textContent = 'Analysing…';
     const t0 = performance.now();
     const result = await analyseBuffer(buffer, {
+      signal: job.signal,
       humOptions: humOptionsFrom(state.alertCfg),
       onProgress: (p) => {
         bar.style.width = `${Math.round(p * 100)}%`;
@@ -428,9 +445,12 @@ async function handleFile(file) {
     state.file = { name: file.name, source: file, buffer, ...result };
     showFileResult(secs);
   } catch (e) {
-    showError(`Could not read ${file.name}: ${describeError(e)}`);
+    if (!job.signal.aborted) showError(`Could not read ${file.name}: ${describeError(e)}`);
   } finally {
-    el.fileProgress.hidden = true;
+    if (fileJob === job) {
+      fileJob = null;
+      el.fileProgress.hidden = true;
+    }
   }
 }
 
@@ -567,7 +587,7 @@ async function exportJson() {
 
 async function toggleDiskRecording() {
   try {
-    if (recorder.writer) await recorder.stopDisk();
+    if (recorder.recording) await recorder.stopDisk();
     else await recorder.startDisk(exportName('csv'));
   } catch (e) {
     if (e.name !== 'AbortError') showError(`Could not write the CSV file: ${describeError(e)}`);
@@ -576,7 +596,7 @@ async function toggleDiskRecording() {
 }
 
 function updateRecordButton() {
-  const on = !!recorder.writer;
+  const on = recorder.recording;
   el.recordDisk.classList.toggle('recording', on);
   el.recordDisk.textContent = on ? `Recording to ${recorder.fileName}` : 'Record CSV to disk…';
   if (on) state.exported = true;
@@ -606,6 +626,7 @@ el.dropzone.addEventListener('dragover', (e) => {
 el.dropzone.addEventListener('dragleave', () => el.dropzone.classList.remove('over'));
 el.dropzone.addEventListener('drop', (e) => {
   e.preventDefault();
+  e.stopPropagation(); // the window's drop handler below would load it a second time
   el.dropzone.classList.remove('over');
   handleFile(e.dataTransfer.files[0]);
 });
@@ -633,6 +654,8 @@ if (!SessionRecorder.diskSupported) {
   el.recordDisk.disabled = true;
   el.recordDisk.title = 'Needs Chrome or Edge (File System Access API)';
 }
+// Best effort: rows recorded to disk since the last commit (a reload or a closed tab).
+window.addEventListener('pagehide', () => recorder.recording && recorder.commit());
 window.addEventListener('beforeunload', (e) => {
   if (state.running && !state.exported) e.preventDefault();
 });

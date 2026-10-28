@@ -17,6 +17,9 @@ const BADGE = {
 // this worker, not just at install: a browser restart doesn't run onInstalled and may not
 // keep it, which left the button clickable on every site.
 chrome.action.disable();
+// Chrome only starts this worker for events it listens to: without an onStartup listener
+// it wouldn't run when the browser starts, and the line above wouldn't either.
+chrome.runtime.onStartup.addListener(() => {});
 
 chrome.runtime.onInstalled.addListener(() => {
   chrome.declarativeContent.onPageChanged.removeRules(undefined, () => {

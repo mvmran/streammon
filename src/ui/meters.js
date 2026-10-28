@@ -5,7 +5,7 @@
 import { ALERT_LABELS } from '../dsp/alerts.js';
 import { TimeChart } from './charts.js';
 import { StereoBandsView } from './stereo-view.js';
-import { fmtDb, fmtDuration, fmtClock, escapeHtml } from './format.js';
+import { fmtDb, fmtDuration, fmtClock } from './format.js';
 
 const STATUS_ICON = { CLEAN: '✓', LIMITED: '▲', CLIPPING: '✖', IDLE: '' };
 // Stereo status word (src/dsp/stereobands.js): icon and badge style.
@@ -149,16 +149,26 @@ export function statusDetail(row) {
 }
 
 // Alert banners. `active` is AlertMonitor.active; dismissed ids are skipped.
+// Banners are updated in place, not rebuilt: this runs every second while an alert is
+// active, and a dismiss button replaced between mouse down and up would miss the click.
 export function renderAlertBanners(container, active, { dismissed, startWall, onDismiss }) {
-  container.textContent = '';
-  for (const [id, a] of Object.entries(active)) {
-    if (dismissed.has(id)) continue;
-    const div = document.createElement('div');
-    div.className = `alert ${CRITICAL_ALERTS.has(id) ? '' : 'warning'}`;
-    div.innerHTML = `<span class="icon" aria-hidden="true">${id === 'clipping' || id === 'stereoPhase' ? '✖' : '⚠'}</span><span>${escapeHtml(ALERT_LABELS[id])}: ${escapeHtml(a.message)}</span><span class="since">since ${fmtClock(new Date(startWall + a.since * 1000))}</span><button type="button" title="Dismiss until it happens again" aria-label="Dismiss">×</button>`;
-    div.querySelector('button').addEventListener('click', () => onDismiss(id));
-    container.append(div);
-  }
+  container.onDismiss = onDismiss; // read at click time, so the latest handler is used
+  const shown = Object.keys(active).filter((id) => !dismissed.has(id));
+  for (const div of [...container.children]) if (!shown.includes(div.dataset.id)) div.remove();
+  shown.forEach((id, i) => {
+    const a = active[id];
+    let div = container.querySelector(`:scope > [data-id="${id}"]`);
+    if (!div) {
+      div = document.createElement('div');
+      div.dataset.id = id;
+      div.className = `alert ${CRITICAL_ALERTS.has(id) ? '' : 'warning'}`;
+      div.innerHTML = `<span class="icon" aria-hidden="true">${id === 'clipping' || id === 'stereoPhase' ? '✖' : '⚠'}</span><span class="text"></span><span class="since"></span><button type="button" title="Dismiss until it happens again" aria-label="Dismiss">×</button>`;
+      div.querySelector('button').addEventListener('click', () => container.onDismiss(id));
+    }
+    setText(div.querySelector('.text'), `${ALERT_LABELS[id]}: ${a.message}`);
+    setText(div.querySelector('.since'), `since ${fmtClock(new Date(startWall + a.since * 1000))}`);
+    if (container.children[i] !== div) container.insertBefore(div, container.children[i] || null);
+  });
 }
 
 const ceilingRef = (rows) => {

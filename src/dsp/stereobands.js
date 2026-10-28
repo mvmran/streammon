@@ -10,6 +10,8 @@ const Q = Math.SQRT2; // one-octave bandwidth
 const SILENT_DB = -90; // bands quieter than this report no correlation or balance
 
 export const MONO = 'MONO';
+// File analysis only (no band filters): neither MONO nor CHANNEL DEAD.
+export const STEREO = 'STEREO';
 export const STEREO_OK = 'STEREO OK';
 export const WIDE = 'WIDE';
 export const UNBALANCED = 'UNBALANCED';
@@ -44,6 +46,15 @@ export function deadChannel(leftDb, rightDb, rules = STEREO_RULES) {
   if (leftDb - rightDb >= rules.deadGapDb) return 'right';
   if (rightDb - leftDb >= rules.deadGapDb) return 'left';
   return null;
+}
+
+// The same sound on both sides: MONO, or UNBALANCED when one side is turned down (e.g. a
+// mono feed split to L and R with one trim lower), which headphone listeners hear off-centre.
+export function monoStatus(balanceDb, rules = STEREO_RULES) {
+  if (balanceDb !== null && Math.abs(balanceDb) > rules.unbalancedDb) {
+    return { status: UNBALANCED, detail: `Mono, ${Math.abs(balanceDb).toFixed(1)} dB louder on ${balanceDb < 0 ? 'left' : 'right'}` };
+  }
+  return { status: MONO, detail: 'Left and right identical' };
 }
 
 export const deadDetail = (side) => `${side === 'left' ? 'Left' : 'Right'} channel silent`;
@@ -183,7 +194,7 @@ export class StereoStatus {
     }
     if (mono) {
       this.held = null;
-      return { status: MONO, detail: 'Left and right identical' };
+      return monoStatus(balanceDb, this.rules);
     }
     const now = this.judge(bands, balanceDb);
     if (!now.status) {

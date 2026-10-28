@@ -239,10 +239,17 @@ export class AudioEngine {
   }
 }
 
-// Analyses a decoded AudioBuffer in a worker, faster than real time.
-export function analyseBuffer(buffer, { onProgress, clipOptions, humOptions } = {}) {
+// Analyses a decoded AudioBuffer in a worker, faster than real time. Aborting `signal`
+// stops the worker and rejects with an AbortError.
+export function analyseBuffer(buffer, { onProgress, clipOptions, humOptions, signal } = {}) {
   return new Promise((resolve, reject) => {
     const worker = new Worker(FILE_WORKER_URL, { type: 'module' });
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        worker.terminate();
+        reject(new DOMException('Analysis cancelled', 'AbortError'));
+      }, { once: true });
+    }
     const chunk = buffer.sampleRate * 10;
     const left = buffer.getChannelData(0);
     const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left;

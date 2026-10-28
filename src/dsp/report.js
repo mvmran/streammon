@@ -15,7 +15,6 @@ export const CSV_COLUMNS = [
   ['side_mid_db', (r) => num(r.sideMidDb)],
   ['balance_db', (r) => num(r.stereoBalanceDb)],
   ['stereo_status', (r) => r.stereoStatus || ''],
-  ['stereo_detail', (r) => r.stereoDetail || ''],
   ['status', (r) => r.status],
   ['detectors', (r) => (r.detectors || []).join('+')],
   ['dwell_runs_per_s', (r) => num(r.dwellRate)],
@@ -29,6 +28,8 @@ export const CSV_COLUMNS = [
   ['hum_frequency_hz', (r) => num(r.humFrequencyHz, 2)],
   ['hum_prominence_db', (r) => num(r.humProminenceDb)],
   ['hum_projected_dbfs', (r) => num(r.humProjectedDb)],
+  // Newer columns go at the end, so older spreadsheets reading by position still work.
+  ['stereo_detail', (r) => r.stereoDetail || ''],
 ];
 
 function num(x, digits = 1) {

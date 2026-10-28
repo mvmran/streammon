@@ -223,6 +223,19 @@ describe('hum configuration', () => {
     assert.ok(events.some((e) => e.type === 'hum-config' && /changed to 60 Hz/.test(e.message)));
     assert.equal(a.hum.opt.mainsFrequencyHz, 60);
   });
+
+  test('after a mid-session settings change, hum times stay in session time', () => {
+    const sr = 48000;
+    const x = addHum(speechLike(sr, 45, -30), sr, { freq: 60, levelDb: -60 });
+    const events = [], results = [];
+    const a = new StreamAnalyzer(sr, { onEvent: (e) => events.push(e), onHum: (r) => results.push(r), humOptions: { mainsFrequencyHz: 50 } });
+    a.process(x.subarray(0, 20 * sr), x.subarray(0, 20 * sr));
+    a.setHumOptions({ mainsFrequencyHz: 60 });
+    a.process(x.subarray(20 * sr), x.subarray(20 * sr));
+    const onset = events.find((e) => e.type === 'hum-onset');
+    assert.ok(onset && onset.t > 25 && onset.t < 40, `onset at ${onset && onset.t} s`);
+    assert.ok(results.at(-1).t > 44, `last result at ${results.at(-1).t} s`);
+  });
 });
 
 describe('hum performance', () => {

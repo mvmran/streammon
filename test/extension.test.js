@@ -47,3 +47,10 @@ test('only YouTube pages are monitored', () => {
   assert.ok(!isYouTubeUrl('http://www.youtube.com/'), 'https only, like the button rule');
   assert.ok(!isYouTubeUrl(undefined), 'other sites: the URL is hidden from the extension');
 });
+
+test('the toolbar button is disabled each time the service worker starts, browser start included', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const src = await readFile(new URL('../extension/background.js', import.meta.url), 'utf8');
+  assert.match(src, /^chrome\.action\.disable\(\);$/m, 'disabled at the top level, not only in onInstalled');
+  assert.match(src, /^chrome\.runtime\.onStartup\.addListener\(/m, 'an onStartup listener, so the worker runs at browser start');
+});

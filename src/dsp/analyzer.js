@@ -10,12 +10,13 @@
 //   onEvent(event)   clip status changes: { type: 'start' | 'end', status, t, ... };
 //                    hum: { type: 'hum-onset' | 'hum-offset' | 'hum-step' | 'hum-config', t, ... }
 //                    stereo status changes: { type: 'stereo', t, status, detail, previous, previousSeconds }
+//                    (file analysis: MONO, UNBALANCED mono, CHANNEL DEAD or STEREO, i.e. none of these)
 
 import { LoudnessMeter } from './loudness.js';
 import { TruePeakChannel } from './truepeak.js';
 import { ClipDetector, CLEAN, LIMITED, CLIPPING } from './clipdetect.js';
 import { StereoMeter } from './stereo.js';
-import { StereoBands, StereoStatus, STEREO_RULES, MONO, CHANNEL_DEAD, deadChannel, deadDetail } from './stereobands.js';
+import { StereoBands, StereoStatus, STEREO_RULES, STEREO, CHANNEL_DEAD, deadChannel, deadDetail, monoStatus } from './stereobands.js';
 import { CrestMeter, toDb } from './crest.js';
 import { HumDetector, PRESENT as HUM_PRESENT, NOT_DETECTED as HUM_NOT_DETECTED, MASKED as HUM_MASKED } from './hum.js';
 
@@ -33,8 +34,9 @@ export class StreamAnalyzer {
     this.onHum = onHum;
     this.loudness = new LoudnessMeter(sampleRate);
     this.hum = new HumDetector(sampleRate, humOptions, {
-      onResult: (r) => this.humResult(r),
-      onEvent: (e) => this.emit(e),
+      // The detector counts time from its own (re)start: shift it to session time.
+      onResult: (r) => this.humResult(this.humFrom ? { ...r, t: r.t + this.humFrom } : r),
+      onEvent: (e) => this.emit(this.humFrom ? { ...e, t: e.t + this.humFrom } : e),
     });
     this.tp = [new TruePeakChannel(), new TruePeakChannel()];
     this.clip = new ClipDetector(sampleRate, clipOptions);
@@ -58,6 +60,7 @@ export class StreamAnalyzer {
     this.lastStereo = null;
     this.crest.reset();
     this.hum.reset();
+    this.humFrom = 0; // session time the hum detector last (re)started at
     this.lastHum = null;
     this.humSeconds = { [HUM_PRESENT]: 0, [HUM_NOT_DETECTED]: 0, [HUM_MASKED]: 0 };
     this.humMaxDb = -Infinity;
@@ -75,7 +78,7 @@ export class StreamAnalyzer {
     this.lastClip = null;
     this.status = CLEAN;
     this.episode = null;
-    this.stereoLog = { candidate: null, since: 0, logged: null, loggedSince: 0 };
+    this.stereoLog = { candidate: null, since: 0, run: 0, logged: null, loggedSince: 0 };
     this.events = 0;
   }
 
@@ -180,6 +183,7 @@ export class StreamAnalyzer {
 
     const stereo = this.stereo.current;
     const dead = this.deadSide();
+    const fileMono = monoStatus(this.stereo.balanceDb); // used when there is no StereoStatus
     const row = {
       t,
       momentary: this.loudness.momentary,
@@ -196,9 +200,9 @@ export class StreamAnalyzer {
       sideMidDb: stereo.sideMidDb,
       mono: stereo.mono,
       stereoBalanceDb: this.stereo.balanceDb,
-      // The file worker has no StereoStatus (no band filters): dead channel or MONO only.
-      stereoStatus: this.lastStereo ? this.lastStereo.status : dead ? CHANNEL_DEAD : stereo.mono ? MONO : null,
-      stereoDetail: this.lastStereo ? this.lastStereo.detail : dead ? deadDetail(dead) : null,
+      // The file worker has no StereoStatus (no band filters): dead channel or mono only.
+      stereoStatus: this.lastStereo ? this.lastStereo.status : dead ? CHANNEL_DEAD : stereo.mono ? fileMono.status : null,
+      stereoDetail: this.lastStereo ? this.lastStereo.detail : dead ? deadDetail(dead) : stereo.mono ? fileMono.detail : null,
       status: c.status,
       detectors: c.detectors,
       dwellRate: c.dwellRate,
@@ -217,20 +221,24 @@ export class StreamAnalyzer {
       humSignature: h && h.present ? h.signature : null,
     };
     this.s = { peak: 0, tp: 0 };
-    this.trackStereo(row.stereoStatus, row.stereoDetail, t);
+    // The file worker has no StereoStatus: there no status means ordinary stereo.
+    this.trackStereo(row.stereoStatus || (this.stereoStatus ? null : STEREO), row.stereoDetail, t);
     if (this.onSecond) this.onSecond(row);
   }
 
-  // Reports a stereo status change once the new status has lasted STEREO_RULES.logSeconds,
-  // dated from when it began. Seconds that are too quiet to judge (no status) are skipped.
+  // Reports a stereo status change once the new status has been judged for
+  // STEREO_RULES.logSeconds in a row, dated from when it began. A second too quiet to
+  // judge (no status) breaks the run, so quiet gaps don't count towards it.
   trackStereo(status, detail, t) {
-    if (!status) return;
     const s = this.stereoLog;
     if (status !== s.candidate) {
       s.candidate = status;
       s.since = Math.max(0, t - 1);
+      s.run = 0;
     }
-    if (status === s.logged || t - s.since < STEREO_RULES.logSeconds) return;
+    if (!status) return;
+    s.run++;
+    if (status === s.logged || s.run < STEREO_RULES.logSeconds) return;
     this.emit({ type: 'stereo', t: s.since, status, detail, previous: s.logged, previousSeconds: s.logged ? s.since - s.loggedSince : 0 });
     s.logged = status;
     s.loggedSince = s.since;
@@ -293,7 +301,8 @@ export class StreamAnalyzer {
   // Changes the hum settings (e.g. mains frequency) mid-session; logged as an event.
   setHumOptions(options) {
     const prev = this.hum.opt.mainsFrequencyHz;
-    this.hum.configure(options);
+    this.hum.configure(options); // restarts the detector, and its clock, from now
+    this.humFrom = this.elapsed;
     this.lastHum = null;
     this.emitHumConfig(prev);
   }

@@ -129,9 +129,10 @@ Each octave band (31 Hz – 16 kHz) is filtered by two cascaded RBJ band-pass bi
 - It is judged on a 3 s window (`StereoBands.over(windowFrames)`), not the 1 s display window, and phase only on bands from 125 Hz up (`phaseMinHz`). Checked on public-domain orchestral and quartet recordings and a CC studio album: with the 1 s window and all bands, a spaced-mic orchestra recording read PHASE PROBLEM 42% of the time (bass notes swing in and out of phase note by note); with these rules it's 4%, never long enough to alert, and the same recordings with one channel inverted still read PHASE PROBLEM 95–100% of the time.
 - A worse word is held for 3 s.
 - It goes out as `frame.stereoStatus` / `stereoDetail` and in rows, plus the CSV columns `stereo_status`, `stereo_detail` and `balance_db`.
-- A change of status is logged (analyzer event `stereo`, shown as "Stereo: WIDE" etc.) once the new status has lasted `STEREO_RULES.logSeconds` (10 s), dated from when it began. On the stereo test recordings that is 10–25 log lines an hour for studio mixes; a 5 s hold gave up to 120 an hour on an orchestral recording.
+- A change of status is logged (analyzer event `stereo`, shown as "Stereo: WIDE" etc.) once the new status has been judged for `STEREO_RULES.logSeconds` (10 s) in a row (a second too quiet to judge breaks the run), dated from when it began; file analysis logs MONO / UNBALANCED / CHANNEL DEAD / STEREO (none of those). The log keeps entries in time order (`insertByTime` in `log.js`), as these arrive late. On the stereo test recordings that is 10–25 log lines an hour for studio mixes; a 5 s hold gave up to 120 an hour on an orchestral recording.
 - It drives the Stereo card's badge and the alerts `stereoPhase` (5 s), `stereoBalance` (15 s) and `stereoMono` (opt-in), set in the alert config's `stereo` section.
-- File-analysis rows have only MONO, CHANNEL DEAD or nothing, because the worker skips the band filters (they would slow analysis by about two-thirds).
+- File-analysis rows have only MONO, UNBALANCED (a lopsided mono feed), CHANNEL DEAD or nothing, because the worker skips the band filters (they would slow analysis by about two-thirds).
+- Identical-but-lopsided channels (correlation above 0.999, more than `unbalancedDb` apart) read UNBALANCED, not MONO (`monoStatus`).
 
 **Pan map.** `src/ui/pan-map.js` places each FFT bin of separate L and R `AnalyserNode` spectra by (R² − L²)/(R² + L²) in ⅓-octave rows, averaged over about 1 s.
 - `engine.analyserL` / `analyserR` sit behind a `ChannelSplitterNode`.

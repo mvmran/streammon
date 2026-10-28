@@ -10,6 +10,15 @@ const fmtHz = (f) => `${f.toFixed(2)} Hz`;
 
 const DETECTOR_NAMES = { dwell: 'dwell', pileup: 'pile-up', fullscale: 'full scale' };
 
+// Inserts an entry into a list kept in time order (equal times keep arrival order) and
+// returns its index. Entries usually arrive in order, so the search starts at the end.
+export function insertByTime(list, entry) {
+  let i = list.length;
+  while (i > 0 && list[i - 1].t > entry.t) i--;
+  list.splice(i, 0, entry);
+  return i;
+}
+
 export class EventLog {
   constructor(body, empty, { onSeek } = {}) {
     this.body = body;
@@ -29,9 +38,12 @@ export class EventLog {
   }
 
   // entry: { clock, t, kind: 'CLIPPING' | 'LIMITED' | 'CLEAN' | 'hum' | 'stereo' | 'alert' | 'info', title, ceilingDb, detail, seekable }
+  // Kept in time order: a stereo change arrives about 10 s after the time it carries.
   add(entry) {
-    this.entries.push(entry);
+    const i = insertByTime(this.entries, entry);
+    const above = this.entries.length - 1 - i; // newer entries, shown above it
     if (this.entries.length > MAX_KEPT) this.entries.shift();
+    if (above >= MAX_ROWS) return;
     const tr = document.createElement('tr');
     if (entry.seekable) {
       tr.className = 'seekable';
@@ -39,7 +51,7 @@ export class EventLog {
       tr.title = 'Play from here';
     }
     tr.innerHTML = `<td>${escapeHtml(entry.clock || '')}</td><td>${fmtDuration(entry.t)}</td><td><span class="ev ev-${entry.kind}">${escapeHtml(entry.title)}</span></td><td>${Number.isFinite(entry.ceilingDb) ? `${fmtDb(entry.ceilingDb)} dBFS` : ''}</td><td>${escapeHtml(entry.detail || '')}</td>`;
-    this.body.prepend(tr);
+    this.body.insertBefore(tr, this.body.rows[above] || null);
     while (this.body.rows.length > MAX_ROWS) this.body.lastElementChild.remove();
     this.empty.hidden = true;
   }
@@ -72,8 +84,11 @@ export class EventLog {
   }
 
   static fromStereoEvent(e, clock, seekable = false) {
-    const was = e.previous ? `was ${e.previous} for ${fmtDuration(e.previousSeconds)}` : '';
-    return { clock, t: e.t, kind: 'stereo', title: `Stereo: ${e.status}`, detail: [e.detail, was].filter(Boolean).join(' · '), seekable };
+    // STEREO only comes from file analysis, which judges just MONO and CHANNEL DEAD.
+    const word = (status) => (status === 'STEREO' ? 'stereo (not mono, no dead channel)' : status);
+    const was = e.previous ? `was ${word(e.previous)} for ${fmtDuration(e.previousSeconds)}` : '';
+    const detail = e.status === 'STEREO' ? '' : e.detail;
+    return { clock, t: e.t, kind: 'stereo', title: `Stereo: ${word(e.status)}`, detail: [detail, was].filter(Boolean).join(' · '), seekable };
   }
 
   static fromHumEvent(e, clock, seekable = false) {

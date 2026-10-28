@@ -2,11 +2,11 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { StereoBands, StereoStatus, MONO, STEREO_OK, WIDE, UNBALANCED, PHASE_PROBLEM, CHANNEL_DEAD, deadChannel } from '../src/dsp/stereobands.js';
+import { StereoBands, StereoStatus, STEREO, MONO, STEREO_OK, WIDE, UNBALANCED, PHASE_PROBLEM, CHANNEL_DEAD, deadChannel } from '../src/dsp/stereobands.js';
 import { StreamAnalyzer } from '../src/dsp/analyzer.js';
 import { AlertMonitor } from '../src/dsp/alerts.js';
 import { csvHeader, csvRow } from '../src/dsp/report.js';
-import { EventLog } from '../src/ui/log.js';
+import { EventLog, insertByTime } from '../src/ui/log.js';
 
 const SR = 48000;
 
@@ -180,6 +180,30 @@ test('stereo status changes are logged once they last 10 s, dated from their sta
   assert.equal(entry.title, 'Stereo: MONO');
   assert.match(entry.detail, /was PHASE PROBLEM for 0:1\d/);
   assert.deepEqual(changes(...flipped(30, 10, 15)).map((e) => e.status), [MONO], 'a 5 s swing is not logged');
+  // Quiet seconds don't count: a 3 s flip, 30 s of silence and a 2 s flip aren't 10 s of it.
+  const [L, R] = flipped(60, 15, 50);
+  L.fill(0, 18 * SR, 48 * SR);
+  R.fill(0, 18 * SR, 48 * SR);
+  assert.deepEqual(changes(L, R).map((e) => e.status), [MONO], 'phase heard for about 5 s around a silence');
+});
+
+test('file analysis logs dead-channel episodes and the return to stereo', () => {
+  const [L] = flipped(105, 0, 0);
+  const R = new Float32Array(L.length);
+  for (let i = 0; i < L.length; i++) R[i] = L[(i + 4801) % L.length]; // different from L: neither MONO nor dead
+  R.fill(0, 20 * SR, 40 * SR);
+  R.fill(0, 70 * SR, 90 * SR);
+  const out = [];
+  new StreamAnalyzer(SR, { onEvent: (e) => e.type === 'stereo' && out.push(e) }).process(L, R);
+  assert.deepEqual(out.map((e) => [e.status, Math.round(e.t)]), [[STEREO, 0], [CHANNEL_DEAD, 20], [STEREO, 40], [CHANNEL_DEAD, 70], [STEREO, 90]]);
+  assert.equal(EventLog.fromEvent(out[2], 'file').title, 'Stereo: stereo (not mono, no dead channel)');
+});
+
+test('the log stays in time order when an entry arrives late', () => {
+  const list = [{ t: 1 }, { t: 5 }, { t: 9 }];
+  assert.equal(insertByTime(list, { t: 4, late: true }), 1);
+  assert.equal(insertByTime(list, { t: 9, same: true }), 4, 'equal times keep arrival order');
+  assert.deepEqual(list.map((e) => e.t), [1, 4, 5, 9, 9]);
 });
 
 test('a worse stereo status is held for 3 s', () => {
@@ -199,6 +223,7 @@ test('stereo alerts: phase after 5 s, imbalance after 15 s, mono only when asked
   let r;
   for (let t = 1; t <= 5; t++) r = m.update(row(t, PHASE_PROBLEM, 'Out of phase: 2k'));
   assert.deepEqual(r.raised.map((a) => a.id), ['stereoPhase']);
+  assert.equal(m.active.stereoPhase.message, 'Out of phase: 2k: cancels on mono speakers and phones (5 s)');
   const u = new AlertMonitor();
   for (let t = 1; t <= 14; t++) assert.equal(u.update(row(t, UNBALANCED)).raised.length, 0);
   assert.deepEqual(u.update(row(15, UNBALANCED)).raised.map((a) => a.id), ['stereoBalance']);
@@ -206,7 +231,8 @@ test('stereo alerts: phase after 5 s, imbalance after 15 s, mono only when asked
   for (let t = 1; t <= 30; t++) assert.equal(mono.update(row(t, MONO)).raised.length, 0);
   const dead = new AlertMonitor();
   for (let t = 1; t <= 4; t++) assert.equal(dead.update(row(t, CHANNEL_DEAD)).raised.length, 0);
-  assert.deepEqual(dead.update(row(5, CHANNEL_DEAD)).raised.map((a) => a.id), ['stereoDead']);
+  assert.deepEqual(dead.update(row(5, CHANNEL_DEAD, 'Left channel silent')).raised.map((a) => a.id), ['stereoDead']);
+  assert.equal(dead.active.stereoDead.message, 'Left channel silent: only the right side carries sound (5 s)');
   const asked = new AlertMonitor({ stereo: { mono: true } });
   for (let t = 1; t <= 9; t++) asked.update(row(t, MONO));
   assert.deepEqual(asked.update(row(10, MONO)).raised.map((a) => a.id), ['stereoMono']);
@@ -228,4 +254,20 @@ test('frames and rows carry the stereo status; the CSV has it', () => {
   const fa = new StreamAnalyzer(SR, { onSecond: (r) => fileRows.push(r) });
   fa.process(L, L);
   assert.equal(fileRows.at(-1).stereoStatus, MONO);
+});
+
+test('a mono feed louder on one side reads UNBALANCED, live and in file analysis', () => {
+  const [L] = flipped(20, 0, 0);
+  const R = L.map((x) => 0.5 * x); // the same sound, 6 dB down on the right
+  const rows = [], fileRows = [];
+  new StreamAnalyzer(SR, { onFrame() {}, onSecond: (r) => rows.push(r) }).process(L, R);
+  new StreamAnalyzer(SR, { onSecond: (r) => fileRows.push(r) }).process(L, R);
+  for (const r of [rows.at(-1), fileRows.at(-1)]) {
+    assert.equal(r.stereoStatus, UNBALANCED);
+    assert.equal(r.stereoDetail, 'Mono, 6.0 dB louder on left');
+  }
+  const m = new AlertMonitor();
+  let raised = [];
+  for (const r of rows) raised = raised.concat(m.update({ ...r, status: 'CLEAN' }).raised);
+  assert.ok(raised.some((a) => a.id === 'stereoBalance' && a.message.startsWith('Mono, 6.0 dB louder on left')), JSON.stringify(raised));
 });
