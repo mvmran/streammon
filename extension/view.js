@@ -141,7 +141,7 @@ const hub = connectHub({
   // Taken in as they arrive (one per 100 ms of audio), also while this page is hidden,
   // so the spectrogram has no gaps; drawn in tick().
   spectrum(m) {
-    if (spectrum) spectrum.updateData(m.data, m.sampleRate, m.t);
+    if (spectrum) spectrum.updateData(m.data, m.sampleRate, m.t, m.fine || null);
     if (panMap && m.left && Number.isFinite(m.t)) panMap.update(m.left, m.right, m.sampleRate, m.t);
   },
   hum(m) {

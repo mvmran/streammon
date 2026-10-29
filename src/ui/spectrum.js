@@ -6,6 +6,9 @@ import { thirdOctaveLevels, THIRD_OCTAVE_CENTRES, bandLevels, OCTAVE_CENTRES } f
 import { css, fmtDb, frameStep } from './format.js';
 
 const DB_MIN = -100;
+// Below this the bars, the octave balance and the spectrogram use the finer spectrum
+// (engine.analyserFine) when there is one.
+export const FINE_MAX_HZ = 200;
 const DB_MAX = -10;
 // Shared frequency axis: the outer edges of the first and last 1/3-octave bands, so each
 // bar sits exactly above its own stretch of the spectrogram (log scale).
@@ -21,6 +24,17 @@ const BALANCE_SHOWN = OCTAVE_CENTRES.length - 1; // the balance lists 31 Hz to 8
 
 // Sequential single-hue ramp (dark surface -> blue -> near white) for the spectrogram.
 const RAMP = ['#1a1a19', '#104281', '#1c5cab', '#2a78d6', '#5598e7', '#86b6ef', '#cde2fb', '#ffffff'];
+
+// The first bins of the finer analyser, up to just past FINE_MAX_HZ: { db, binHz }.
+const fineBufs = new WeakMap();
+export function readFine(analyser, sampleRate) {
+  const binHz = sampleRate / analyser.fftSize;
+  const n = Math.min(analyser.frequencyBinCount, Math.ceil(FINE_MAX_HZ / binHz) + 2);
+  let db = fineBufs.get(analyser);
+  if (!db || db.length !== n) fineBufs.set(analyser, (db = new Float32Array(n)));
+  analyser.getFloatFrequencyData(db); // fills only as many bins as the array holds
+  return { db, binHz };
+}
 
 function buildLut() {
   const rgb = RAMP.map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
@@ -258,6 +272,7 @@ export class SpectrumView {
     this.balanceDirty = false;
     this.thirdPower = null;
     this.levels = null;
+    this.fine = null;
     if (this.sg) {
       this.sg.count = 0;
       this.repaintHistory();
@@ -271,21 +286,24 @@ export class SpectrumView {
   }
 
   // One analyzer frame. t: the frame's time on the audio clock (s), which places the
-  // spectrogram row and times the averages.
-  update(analyser, sampleRate, t) {
+  // spectrogram row and times the averages. fineAnalyser: a longer FFT of the same audio,
+  // used below FINE_MAX_HZ.
+  update(analyser, sampleRate, t, fineAnalyser = null) {
     if (!this.data || this.data.length !== analyser.frequencyBinCount) this.data = new Float32Array(analyser.frequencyBinCount);
     analyser.getFloatFrequencyData(this.data);
-    this.updateData(this.data, sampleRate, t);
+    this.updateData(this.data, sampleRate, t, fineAnalyser ? readFine(fineAnalyser, sampleRate) : null);
   }
 
-  // Same as update() for spectrum data (dB per FFT bin) obtained elsewhere. Data without a
-  // frame time is dropped: its row couldn't be placed on the audio clock.
-  updateData(data, sampleRate, t) {
+  // Same as update() for spectrum data (dB per FFT bin) obtained elsewhere; fine:
+  // { db, binHz } (see readFine). Data without a frame time is dropped: its row couldn't be
+  // placed on the audio clock.
+  updateData(data, sampleRate, t, fine = null) {
     if (!Number.isFinite(t)) return;
     const dt = frameStep(this.lastT, t);
     this.lastT = t;
     this.data = data;
-    this.levels = thirdOctaveLevels(data, sampleRate);
+    this.fine = fine;
+    this.levels = thirdOctaveLevels(data, sampleRate, fine);
     const power = this.levels.map((l) => Math.pow(10, l / 10));
     const a = 1 - Math.exp(-dt / 5);
     if (!this.thirdPower) this.thirdPower = power;
@@ -384,12 +402,26 @@ export class SpectrumView {
     const sg = this.sg;
     if (!sg) return;
     const nb = this.data.length;
-    if (!sg.colBins || sg.sampleRate !== sampleRate || sg.nb !== nb) {
+    const fine = this.fine;
+    const fineHz = fine ? fine.binHz : 0;
+    if (!sg.colBins || sg.sampleRate !== sampleRate || sg.nb !== nb || sg.fineHz !== fineHz) {
+      // Columns below FINE_MAX_HZ read the finer spectrum (sg.fineCols of them), the rest the main one.
       const binHz = sampleRate / 2 / nb;
+      sg.fineCols = 0;
+      if (fine) while (sg.fineCols < sg.cols && axisFreq((sg.fineCols + 1) / sg.cols) <= FINE_MAX_HZ) sg.fineCols++;
       sg.colBins = new Int32Array(sg.cols + 1);
-      for (let x = 0; x <= sg.cols; x++) sg.colBins[x] = Math.max(1, Math.min(nb - 1, Math.round(axisFreq(x / sg.cols) / binHz)));
+      for (let x = 0; x <= sg.cols; x++) {
+        const f = axisFreq(x / sg.cols);
+        sg.colBins[x] = x < sg.fineCols ? Math.max(1, Math.min(fine.db.length - 1, Math.round(f / fineHz))) : Math.max(1, Math.min(nb - 1, Math.round(f / binHz)));
+      }
+      // Where the last fine column ends, in fine bins (colBins[fineCols] is a main bin).
+      sg.fineEnd = sg.fineCols ? Math.max(sg.colBins[sg.fineCols - 1] + 1, Math.round(axisFreq(sg.fineCols / sg.cols) / fineHz)) : 0;
+      // Its bins are narrower, so broadband sound reads lower per bin (6 dB for 4x the FFT):
+      // add that back so the picture has no step at FINE_MAX_HZ. (The bars sum whole bands.)
+      sg.fineGainDb = fine ? 10 * Math.log10(binHz / fineHz) : 0;
       sg.sampleRate = sampleRate;
       sg.nb = nb;
+      sg.fineHz = fineHz;
     }
     sg.head = (sg.head + 1) % sg.rows;
     sg.count = Math.min(sg.rows, sg.count + 1);
@@ -397,9 +429,11 @@ export class SpectrumView {
     const base = sg.head * sg.cols;
     const px = sg.row.data;
     for (let x = 0; x < sg.cols; x++) {
-      const b0 = sg.colBins[x], b1 = Math.max(b0, sg.colBins[x + 1] - 1);
+      const src = x < sg.fineCols ? fine.db : this.data;
+      const b0 = sg.colBins[x], b1 = Math.max(b0, (x + 1 === sg.fineCols ? sg.fineEnd : sg.colBins[x + 1]) - 1);
       let v = -Infinity;
-      for (let b = b0; b <= b1; b++) if (this.data[b] > v) v = this.data[b];
+      for (let b = b0; b <= b1 && b < src.length; b++) if (src[b] > v) v = src[b];
+      if (x < sg.fineCols) v += sg.fineGainDb;
       const k = Math.max(0, Math.min(255, Math.round(((v - this.sgFloor) / (DB_MAX - this.sgFloor)) * 255)));
       sg.vals[base + x] = k;
       px[x * 4] = this.lut[k * 3];
@@ -475,7 +509,7 @@ export class SpectrumView {
   }
 
   updateBalance(sampleRate, dt) {
-    const levels = bandLevels(this.data, sampleRate, OCTAVE_CENTRES, 1);
+    const levels = bandLevels(this.data, sampleRate, OCTAVE_CENTRES, 1, this.fine);
     const power = levels.map((l) => Math.pow(10, l / 10));
     const a = 1 - Math.exp(-dt / 5);
     if (!this.octPower) this.octPower = power;

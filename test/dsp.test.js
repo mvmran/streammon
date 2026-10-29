@@ -10,6 +10,7 @@ import { stereoFromSums } from '../src/dsp/stereo.js';
 import { AlertMonitor } from '../src/dsp/alerts.js';
 import { csvHeader, csvRow, summaryJson } from '../src/dsp/report.js';
 import { octaveBalance, thirdOctaveLevels, THIRD_OCTAVE_CENTRES } from '../src/dsp/bands.js';
+import { fft } from '../src/dsp/fft.js';
 import { syntheticSignals, programme } from './synthetic.js';
 import { analyse, sine, dbToLin, statusString } from './helpers.js';
 import { StreamAnalyzer } from '../src/dsp/analyzer.js';
@@ -234,6 +235,28 @@ describe('spectrum bands', () => {
     const bal = octaveBalance(spec, sr);
     for (let i = 2; i < bal.length - 1; i++) near(bal[i], 0, 0.6, `octave ${i}`);
     assert.equal(thirdOctaveLevels(spec, sr).length, THIRD_OCTAVE_CENTRES.length);
+  });
+
+  // Like an AnalyserNode: Blackman window, |X|/N, in dB.
+  const analyserDb = (x, n) => {
+    const re = new Float64Array(n), im = new Float64Array(n);
+    for (let i = 0; i < n; i++) re[i] = x[i] * (0.42 - 0.5 * Math.cos((2 * Math.PI * i) / n) + 0.08 * Math.cos((4 * Math.PI * i) / n));
+    fft(re, im);
+    return Float32Array.from({ length: n / 2 }, (_, k) => 20 * Math.log10(Math.hypot(re[k], im[k]) / n + 1e-12));
+  };
+  test('a 60 Hz tone stays out of the 50 Hz band with the finer low spectrum', () => {
+    const sr = 48000;
+    const x = sine(sr, 1, 60, 0.1);
+    const i50 = THIRD_OCTAVE_CENTRES.findIndex((f) => Math.round(f) === 50);
+    const i63 = i50 + 1;
+    const coarse = thirdOctaveLevels(analyserDb(x, 8192), sr);
+    const fineDb = analyserDb(x, 32768);
+    const fine = thirdOctaveLevels(analyserDb(x, 8192), sr, { db: fineDb.subarray(0, 140), binHz: sr / 32768 });
+    assert.ok(coarse[i63] - coarse[i50] < 15, `8192 points alone: the 50 Hz band only ${(coarse[i63] - coarse[i50]).toFixed(0)} dB down`);
+    assert.ok(fine[i63] - fine[i50] > 60, `with the finer spectrum: ${(fine[i63] - fine[i50]).toFixed(0)} dB down`);
+    near(fine[i63], coarse[i63], 1, 'the tone reads about the same in both (the coarse one loses some to its neighbours)');
+    const i1k = THIRD_OCTAVE_CENTRES.findIndex((f) => Math.round(f) === 1000);
+    assert.equal(fine[i1k], coarse[i1k], 'bands above the fine range come from the main spectrum');
   });
 });
 

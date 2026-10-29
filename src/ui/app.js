@@ -196,7 +196,7 @@ function ingestSpectrum(f) {
   if (!engine.ctx || !engine.analyser) return;
   const sr = engine.ctx.sampleRate;
   const t = frameTime(f);
-  spectrum.update(engine.analyser, sr, t);
+  spectrum.update(engine.analyser, sr, t, engine.analyserFine);
   const n = engine.analyserL.frequencyBinCount;
   if (!panL || panL.length !== n) [panL, panR] = [new Float32Array(n), new Float32Array(n)];
   engine.analyserL.getFloatFrequencyData(panL);

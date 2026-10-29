@@ -11,6 +11,7 @@ import { EventLog, insertByTime } from './src/ui/log.js';
 import { SessionRecorder } from './src/ui/session.js';
 import { loadAlertConfig } from './src/ui/settings.js';
 import { fmtClock, fmtStamp, fileStamp } from './src/ui/format.js';
+import { readFine } from './src/ui/spectrum.js';
 import { CHANNEL } from './client.js';
 
 const HISTORY_MAX = 3600;
@@ -200,7 +201,8 @@ function sendSpectrum(f) {
   engine.analyser.getFloatFrequencyData(data);
   engine.analyserL.getFloatFrequencyData(left);
   engine.analyserR.getFloatFrequencyData(right);
-  broadcast({ type: 'spectrum', data, left, right, sampleRate: engine.ctx.sampleRate, t: f.t });
+  const fine = readFine(engine.analyserFine, engine.ctx.sampleRate); // a few hundred bins below FINE_MAX_HZ
+  broadcast({ type: 'spectrum', data, left, right, fine, sampleRate: engine.ctx.sampleRate, t: f.t });
 }
 
 function exportBase() {

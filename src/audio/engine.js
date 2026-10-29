@@ -43,9 +43,13 @@ export class AudioEngine {
     this.mute = new GainNode(this.ctx, { gain: 0 });
     this.node.connect(this.mute).connect(this.ctx.destination);
     this.analyser = new AnalyserNode(this.ctx, { fftSize: 8192, smoothingTimeConstant: 0.5, minDecibels: -110, maxDecibels: 0 });
+    // A finer spectrum for the bottom of the display (below FINE_MAX_HZ in spectrum.js):
+    // 1.5 Hz bins at 48 kHz, so a bass note or mains hum stays on its own frequency.
+    this.analyserFine = new AnalyserNode(this.ctx, { fftSize: 32768, smoothingTimeConstant: 0.5, minDecibels: -110, maxDecibels: 0 });
     this.input = new GainNode(this.ctx, { gain: 1, channelCount: 2, channelCountMode: 'explicit' });
     this.input.connect(this.node);
     this.input.connect(this.analyser);
+    this.input.connect(this.analyserFine);
     // Left and right spectra for the pan map (display only).
     this.splitter = new ChannelSplitterNode(this.ctx, { numberOfOutputs: 2 });
     this.analyserL = new AnalyserNode(this.ctx, { fftSize: 8192, smoothingTimeConstant: 0.5, minDecibels: -110, maxDecibels: 0 });
@@ -208,7 +212,7 @@ export class AudioEngine {
       this.node.port.onmessage = null;
       this.node = null;
     }
-    this.analyser = this.analyserL = this.analyserR = null;
+    this.analyser = this.analyserFine = this.analyserL = this.analyserR = null;
     for (const resolve of this.requests.values()) resolve(null);
     this.requests.clear();
     this.endReset();

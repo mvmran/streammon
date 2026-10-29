@@ -131,7 +131,11 @@ async function main() {
     check(json.summary && json.summary.overallStatus === 'CLIPPING', `JSON summary overall status ${json.summary && json.summary.overallStatus}`);
     await panel.click('#reset');
     await dash.waitForFunction(() => /Reset/.test(document.getElementById('log-body').textContent), null, { timeout: 5000 });
-    check(!/True peak max reset|Clipping started/.test(await dash.textContent('#log-body')), 'Reset in the side panel clears the session (dashboard log starts afresh)');
+    // The test audio keeps clipping, so the new session may already log its own "Clipping
+    // started": check that nothing from before the reset is left (all entries near 0:00).
+    const after = await dash.$$eval('#log-body tr', (rows) => rows.map((r) => [r.cells[2].textContent, r.cells[1].textContent]));
+    const stale = after.filter(([title, elapsed]) => /True peak max reset/.test(title) || !/^0:0\d$/.test(elapsed));
+    check(!stale.length, `Reset in the side panel clears the session (dashboard log starts afresh${stale.length ? `; left: ${JSON.stringify(stale)}` : ''})`);
     await panel.waitForFunction(() => document.getElementById('status').textContent === 'CLIPPING', null, { timeout: 20000 });
     check(true, 'side panel measures again after Reset');
     await panel.click('#stop');
