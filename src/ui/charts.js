@@ -12,7 +12,9 @@ export class TimeChart {
   //         right: { min, max, step, unit, span: [from, to] } (a second scale on the right for
   //         axis: 'right' series, over the [from, to] fraction of the plot height, 0 = bottom), band: { from, to, label },
   //         refs: (chart) => [{ y, label, dash }], statusStrip, statusKey, statusColours,
-  //         statusFaint, xFormat(t), onClick(t), unit }
+  //         statusFaint, xFormat(t), onClick(t), onScrub(t), unit }
+  // onScrub(t) is called while the pointer is held down and dragged across the plot (once
+  // per animation frame at most), and on pressing.
   constructor(canvas, opts) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
@@ -33,7 +35,30 @@ export class TimeChart {
       this.draw();
     });
     if (opts.onClick) canvas.addEventListener('click', (e) => opts.onClick(this.tAt(e)));
+    if (opts.onScrub) this.addScrub(opts.onScrub);
     this.resize();
+  }
+
+  addScrub(onScrub) {
+    const canvas = this.canvas;
+    canvas.style.touchAction = 'pan-y'; // a horizontal drag scrubs; a vertical one still scrolls
+    let held = false, t = 0, frame = 0;
+    const fire = () => {
+      frame = 0;
+      onScrub(t);
+    };
+    const scrub = (e) => {
+      t = this.tAt(e);
+      if (!frame) frame = requestAnimationFrame(fire);
+    };
+    canvas.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      held = true;
+      canvas.setPointerCapture(e.pointerId); // keeps scrubbing past the plot's edges
+      scrub(e);
+    });
+    canvas.addEventListener('pointermove', (e) => held && scrub(e));
+    for (const type of ['pointerup', 'pointercancel']) canvas.addEventListener(type, () => (held = false));
   }
 
   addLegend() {
@@ -61,6 +86,7 @@ export class TimeChart {
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(this.h * dpr);
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.stale = true;
     this.draw();
   }
 
@@ -68,6 +94,7 @@ export class TimeChart {
     this.rows = rows;
     this.xStart = xStart;
     this.xEnd = Math.max(xEnd, xStart + 1);
+    this.stale = true;
     this.draw();
   }
 
@@ -149,9 +176,32 @@ export class TimeChart {
     tip.style.top = `${Math.max(4, e.clientY - 20)}px`;
   }
 
+  // The plot without the playhead and hover marks is kept as an image until the data, the
+  // range or the size changes, so moving those (hovering, scrubbing a 2-hour CSV's
+  // timeline) only copies it and draws the marks.
   draw() {
     if (!this.w) return;
+    if (this.stale || !this.base) {
+      this.base ??= document.createElement('canvas');
+      if (this.base.width !== this.canvas.width || this.base.height !== this.canvas.height) {
+        this.base.width = this.canvas.width;
+        this.base.height = this.canvas.height;
+      }
+      const bctx = this.base.getContext('2d');
+      bctx.setTransform(this.ctx.getTransform());
+      this.drawPlot(bctx);
+      this.stale = false;
+    }
     const ctx = this.ctx;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    ctx.drawImage(this.base, 0, 0);
+    ctx.restore();
+    this.drawMarks(ctx);
+  }
+
+  drawPlot(ctx) {
     const o = this.opts;
     const p = this.plot;
     ctx.clearRect(0, 0, this.w, this.h);
@@ -296,7 +346,12 @@ export class TimeChart {
       ctx.stroke();
     }
     ctx.restore();
+  }
 
+  // Playhead and hover crosshair.
+  drawMarks(ctx) {
+    const o = this.opts;
+    const p = this.plot;
     // Playhead.
     if (this.cursor !== null && this.cursor >= this.xStart && this.cursor <= this.xEnd) {
       const x = Math.round(this.x(this.cursor)) + 0.5;

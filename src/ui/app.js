@@ -404,6 +404,8 @@ function createTimeline() {
     statusStrip: true,
     xFormat,
     onClick: (t) => seekFile(t),
+    // A saved CSV: dragging along the timeline updates the readings as it goes.
+    onScrub: (t) => state.file && state.file.csv && showMoment(timeline.nearest(t)),
   });
   el.fileResult.hidden = true;
 }
@@ -545,7 +547,7 @@ function showFileResult(analysisSecs, moment = null) {
   ].map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('');
   setText(el.dRate, f.csv ? '--' : `${s.sampleRate} Hz`);
   el.play.hidden = !!f.csv;
-  setText(el.fileHint, f.csv ? 'Saved session: click the timeline or a log entry to see that moment.' : 'Click the timeline or a log entry to play from there.');
+  setText(el.fileHint, f.csv ? 'Saved session: click or drag along the timeline, or click a log entry, to see that moment.' : 'Click the timeline or a log entry to play from there.');
 
   timeline.setData(f.rows, 0, s.duration);
   timeline.setCursor(null);

@@ -122,6 +122,18 @@ async function main() {
     check(/0:(1[5-9]|2\d)$/.test(await page.textContent('#play-pos')), `a timeline click shows that moment (${await page.textContent('#play-pos')})`);
     check((await page.textContent('#hum-status-text')) === 'PRESENT', `hum panel shows that second (${await page.textContent('#hum-status-text')})`);
     check(/^−\d/.test(await page.textContent('#st')), `meters show that second (short-term ${await page.textContent('#st')})`);
+    // Dragging along the timeline updates the readings as it goes.
+    const positions = [];
+    const tld = await page.locator('#timeline').boundingBox(); // after the click scrolled it into view
+    await page.mouse.move(tld.x + tld.width * 0.2, tld.y + tld.height / 2);
+    await page.mouse.down();
+    for (const f of [0.35, 0.5, 0.65, 0.8]) {
+      await page.mouse.move(tld.x + tld.width * f, tld.y + tld.height / 2, { steps: 4 });
+      await page.waitForTimeout(80);
+      positions.push(await page.textContent('#play-pos'));
+    }
+    await page.mouse.up();
+    check(new Set(positions).size === positions.length, `dragging the timeline moves the readings (${positions.join(', ')})`);
     await page.locator('#log-body tr', { hasText: 'Mains hum detected' }).first().click();
     await page.waitForTimeout(200);
     check((await page.textContent('#hum-status-text')) === 'PRESENT', `clicking "Mains hum detected" shows a second with hum (${await page.textContent('#play-pos')})`);
