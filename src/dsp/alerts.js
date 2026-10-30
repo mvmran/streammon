@@ -74,10 +74,11 @@ export class AlertMonitor {
       const det = row.detectors && row.detectors.length ? ` (${row.detectors.join(' + ')})` : '';
       out.clipping = `Clipping for ${this.run.clipping} s at ${fmt(row.ceilingDb)} dBFS${det}`;
     }
-    if (c.truePeak.enabled && row.truePeakDb > c.truePeak.dbtp) {
+    // Number.isFinite: a reading that is missing (null) must not count as 0 dB.
+    if (c.truePeak.enabled && Number.isFinite(row.truePeakDb) && row.truePeakDb > c.truePeak.dbtp) {
       out.truePeak = `True peak ${fmt(row.truePeakDb)} dBTP (limit ${c.truePeak.dbtp})`;
     }
-    this.run.shortTermHigh = row.shortTerm > c.shortTermHigh.lufs ? this.run.shortTermHigh + 1 : 0;
+    this.run.shortTermHigh = Number.isFinite(row.shortTerm) && row.shortTerm > c.shortTermHigh.lufs ? this.run.shortTermHigh + 1 : 0;
     if (c.shortTermHigh.enabled && this.run.shortTermHigh >= c.shortTermHigh.seconds) {
       out.shortTermHigh = `Short-term ${fmt(row.shortTerm)} LUFS above ${c.shortTermHigh.lufs} for ${this.run.shortTermHigh} s`;
     }

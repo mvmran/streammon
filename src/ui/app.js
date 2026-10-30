@@ -8,7 +8,7 @@ import { summaryJson, csvHeader, csvRow } from '../dsp/report.js';
 import { readSessionCsv, sessionEvents, sessionSummary, rowAt, stepRows } from '../dsp/session-csv.js';
 import { SpectrumSecond } from '../dsp/bands.js';
 import { PanGrid } from '../dsp/pan.js';
-import { encodePan, decodePan } from '../dsp/csv-codec.js';
+import { decodePan } from './pan-codec.js';
 import { TimeChart } from './charts.js';
 import { SpectrumView } from './spectrum.js';
 import { PanMapView } from './pan-map.js';
@@ -140,9 +140,7 @@ function onRow(row) {
     const wall = new Date(state.startWall + row.t * 1000);
     row.wallClock = fmtStamp(wall);
     row.clock = fmtClock(wall);
-    // The pan map is compressed asynchronously; the row goes into the CSV once it is.
-    const full = row; // `row` becomes the trimmed copy below
-    recorder.addLater(full, encodePan(panSecond).then((code) => (full.panCode = code)));
+    recorder.addLive(row, panSecond); // into the CSV once its pan map is compressed
     // The charts and meters never use the per-band and spectrum data: keep it out of
     // their 3600-row history.
     const { bands, spectrumDb: _, ...rest } = row;
@@ -544,16 +542,19 @@ function showMoment(row) {
   setText(el.elapsed, `position ${fmtDuration(row.t)}`);
 }
 
-// A CSV second's pan map is decoded (async) when first shown, then kept on the row.
+// A CSV second's pan map is decoded (async) when shown. The last few stay decoded on their
+// rows (a grid is about 9.5 KB: all 7200 of a 2-hour service would be 68 MB).
+const PAN_KEPT = 30;
+const panDecoded = []; // rows holding a decoded panGrid, oldest first
 function showSavedPan(row) {
   if (!row.panCode) return panMap.showSaved(null);
-  if (row.panGrid) return panMap.showSaved(row.panGrid);
-  decodePan(row.panCode)
-    .then((grid) => {
-      row.panGrid = grid;
-      if (state.lastRow === row) panMap.showSaved(grid); // unless the moment has moved on
-    })
-    .catch(() => panMap.showSaved(null));
+  if ('panGrid' in row) return panMap.showSaved(row.panGrid); // decoded already (null: damaged)
+  decodePan(row.panCode).then((grid) => {
+    row.panGrid = grid; // null for a damaged cell: not decoded again
+    panDecoded.push(row);
+    if (panDecoded.length > PAN_KEPT) delete panDecoded.shift().panGrid;
+    if (state.lastRow === row) panMap.showSaved(grid); // unless the moment has moved on
+  });
 }
 
 function showFileResult(analysisSecs, moment = null) {

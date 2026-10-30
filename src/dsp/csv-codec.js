@@ -7,8 +7,9 @@
 // formula (= + - @), a number, a date or TRUE/FALSE, and never holds a comma, quote or line
 // break. The longest (a pan map) stays far below Excel's 32,767 characters per cell.
 //
-// The spectrum and band codes are synchronous; the pan map is deflate-compressed with the
-// platform's CompressionStream (browsers, Node 18+), so its encode and decode are async.
+// Pure JS (no browser or Node APIs, like the rest of src/dsp): the spectrum and band codes,
+// and the pan map's packing. Compressing the packed pan map needs CompressionStream, so that
+// part, and the 'p1' code, is in src/ui/pan-codec.js.
 
 import { OCTAVE_CENTRES, THIRD_OCTAVE_CENTRES } from './bands.js';
 import { PAN_COLS, PAN_ROWS } from './pan.js';
@@ -45,7 +46,16 @@ export function fromBase64Url(text) {
 // What every encoded value looks like (the tests hold the encoders to it).
 export const SAFE_CODE = /^[a-z][0-9][A-Za-z0-9_-]*$/;
 
-const tagged = (tag, text) => (typeof text === 'string' && text.startsWith(tag) ? fromBase64Url(text.slice(tag.length)) : null);
+// The bytes of a value with this tag, or null: a damaged cell (hand-edited, or re-encoded
+// by some tool) loses that second's chart, not the whole file.
+export function tagged(tag, text) {
+  if (typeof text !== 'string' || !text.startsWith(tag)) return null;
+  try {
+    return fromBase64Url(text.slice(tag.length));
+  } catch {
+    return null;
+  }
+}
 
 // A level byte: 0.5 dB steps, 1 = −127 dB … 255 = 0 dB; 0 = nothing (−∞ or none).
 const levelByte = (db) => (db === null || !(db > -127.25) ? 0 : Math.min(255, Math.max(1, Math.round((db + 127.5) * 2))));
@@ -97,50 +107,37 @@ export function decodeBands(text) {
 
 // ---------------------------------------------------------------------------
 // Pan map: the full grid (energy per cell, PAN_ROWS × PAN_COLS, row 0 = lowest band).
-// Per band: its loudest cell as a level byte, then every cell in 3 dB steps below it over
-// the map's 45 dB display range, 4 bits each (15 = the loudest, 1 = 42 dB below, 0 = more
-// than 45 dB below or empty); then deflate. A real stereo mix is about 600 characters a
-// second, a mono service about 130.
+// Per band: its loudest cell as a level byte, then every cell in 3 dB steps below it, 4 bits
+// each (15 = the loudest, 1 = 42 dB below; 0 = more than about 43.5 dB below, or empty), so
+// about the map's 45 dB display range. src/ui/pan-codec.js compresses this ('p1').
 
 const STEP_DB = 3;
 const STEPS = 15;
+const PER_ROW = 1 + Math.ceil(PAN_COLS / 2);
 
-async function pipe(bytes, stream) {
-  const out = new Blob([bytes]).stream().pipeThrough(stream);
-  return new Uint8Array(await new Response(out).arrayBuffer());
-}
-
-export async function encodePan(grid) {
-  if (!grid) return '';
-  const perRow = 1 + Math.ceil(PAN_COLS / 2);
-  const bytes = new Uint8Array(PAN_ROWS * perRow);
+export function packPan(grid) {
+  const bytes = new Uint8Array(PAN_ROWS * PER_ROW);
   for (let row = 0; row < PAN_ROWS; row++) {
     let top = 0;
     for (let c = 0; c < PAN_COLS; c++) top = Math.max(top, grid[row * PAN_COLS + c]);
-    const o = row * perRow;
+    const o = row * PER_ROW;
     if (!(top > 0)) continue; // all zero: nothing in this band
-    const topDb = 10 * Math.log10(top);
-    bytes[o] = levelByte(topDb);
-    const topKept = byteLevel(bytes[o]); // decode against the stored level, not the exact one
+    bytes[o] = levelByte(10 * Math.log10(top));
+    const topKept = byteLevel(bytes[o]); // steps are counted from the stored level
     for (let c = 0; c < PAN_COLS; c++) {
       const v = grid[row * PAN_COLS + c];
-      const below = v > 0 ? topKept - 10 * Math.log10(v) : Infinity;
-      const n = below < STEPS * STEP_DB ? Math.max(1, STEPS - Math.round(Math.max(0, below) / STEP_DB)) : 0;
-      bytes[o + 1 + (c >> 1)] |= c & 1 ? n : n << 4;
+      const n = v > 0 ? STEPS - Math.round(Math.max(0, topKept - 10 * Math.log10(v)) / STEP_DB) : 0;
+      if (n > 0) bytes[o + 1 + (c >> 1)] |= c & 1 ? n : n << 4;
     }
   }
-  return 'p1' + toBase64Url(await pipe(bytes, new CompressionStream('deflate-raw')));
+  return bytes;
 }
 
-export async function decodePan(text) {
-  const packed = tagged('p1', text);
-  if (!packed) return null;
-  const bytes = await pipe(packed, new DecompressionStream('deflate-raw'));
-  const perRow = 1 + Math.ceil(PAN_COLS / 2);
-  if (bytes.length < PAN_ROWS * perRow) return null;
+export function unpackPan(bytes) {
+  if (!bytes || bytes.length < PAN_ROWS * PER_ROW) return null;
   const grid = new Float64Array(PAN_ROWS * PAN_COLS);
   for (let row = 0; row < PAN_ROWS; row++) {
-    const o = row * perRow;
+    const o = row * PER_ROW;
     if (!bytes[o]) continue;
     const topDb = byteLevel(bytes[o]);
     for (let c = 0; c < PAN_COLS; c++) {

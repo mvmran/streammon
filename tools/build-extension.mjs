@@ -24,6 +24,7 @@ const SHARED = [
   'src/ui/log.js',
   'src/ui/meters.js',
   'src/ui/session.js',
+  'src/ui/pan-codec.js',
   'src/ui/settings.js',
   'src/ui/spectrum.js',
   'src/ui/pan-map.js',

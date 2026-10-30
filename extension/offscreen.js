@@ -14,7 +14,6 @@ import { fmtClock, fmtStamp, fileStamp } from './src/ui/format.js';
 import { readFine } from './src/ui/spectrum.js';
 import { SpectrumSecond, thirdOctaveLevels } from './src/dsp/bands.js';
 import { PanGrid } from './src/dsp/pan.js';
-import { encodePan } from './src/dsp/csv-codec.js';
 import { CHANNEL } from './client.js';
 
 const HISTORY_MAX = 3600;
@@ -42,6 +41,7 @@ const spectrumWanted = new Map(); // view id -> Date.now() until which it wants 
 let spectrumBufs = null; // reused: the BroadcastChannel copies them anyway
 const spectrumSecond = new SpectrumSecond(); // each second's 1/3-octave spectrum, for the CSV
 const panGrid = new PanGrid(); // the pan map's data: sent to dashboards, and each second's in the CSV
+let panOut = null; // the grid as sent to dashboards
 
 const engine = new AudioEngine({
   onFrame,
@@ -81,10 +81,7 @@ function onSecond(row) {
   row.wallClock = fmtStamp(wall);
   row.clock = fmtClock(wall);
   row.spectrumDb = spectrumSecond.take();
-  // The pan map is compressed asynchronously; the row goes into the CSV once it is.
-  const panSecond = panGrid.takeSecond();
-  const full = row;
-  recorder.addLater(full, encodePan(panSecond).then((code) => (full.panCode = code)));
+  recorder.addLive(row, panGrid.takeSecond()); // into the CSV once its pan map is compressed
   // The views draw charts and meters from rows, never the per-band and spectrum data (only
   // the CSV has it): keep it out of the history, the snapshot and the messages.
   const { bands, spectrumDb, ...view } = row;
@@ -223,7 +220,9 @@ function sendSpectrum(f) {
   const now = Date.now();
   for (const [view, until] of spectrumWanted) if (until < now) spectrumWanted.delete(view);
   if (!spectrumWanted.size) return;
-  broadcast({ type: 'spectrum', data, fine, pan: Float32Array.from(panGrid.grid), sampleRate: engine.ctx.sampleRate, t: f.t });
+  panOut = panOut && panOut.length === panGrid.grid.length ? panOut : new Float32Array(panGrid.grid.length);
+  panOut.set(panGrid.grid); // reused: the BroadcastChannel copies it anyway
+  broadcast({ type: 'spectrum', data, fine, pan: panOut, sampleRate: engine.ctx.sampleRate, t: f.t });
 }
 
 function exportBase() {

@@ -96,7 +96,7 @@ seconds are written as blank cells so they don't turn into `#NAME?`. The pan map
 over its 45 dB display range. A 2-hour service is about 6 MB with stereo music and about
 3 MB for mostly speech (1.2 MB without these columns). A CSV holds one row of readings per
 second, so there is no audio or hum harmonics, and integrated-loudness resets are only in the
-JSON export. CSVs from analysed audio files have none of these three columns.
+JSON export. CSVs from analysed audio files leave these three columns empty.
 
 ## Chrome extension: what viewers hear on YouTube
 

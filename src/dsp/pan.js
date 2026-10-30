@@ -6,6 +6,7 @@
 // its grid to the dashboards), and for the CSV's pan_map column (csv-codec.js).
 
 import { THIRD_OCTAVE_CENTRES } from './bands.js';
+import { frameStep } from './frames.js';
 
 export const PAN_COLS = 41; // pan cells, odd so the centre has its own column
 export const PAN_ROWS = THIRD_OCTAVE_CENTRES.length;
@@ -42,7 +43,7 @@ export class PanGrid {
   // left, right: dB per FFT bin (AnalyserNode.getFloatFrequencyData) for each channel;
   // t: the analyzer frame's audio-clock time (s), which times the average.
   update(left, right, sampleRate, t) {
-    const dt = this.lastT === null || !(t > this.lastT) ? 0.1 : Math.min(t - this.lastT, 60);
+    const dt = frameStep(this.lastT, t);
     this.lastT = t;
     const acc = this.acc;
     acc.fill(0);

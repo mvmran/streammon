@@ -17,17 +17,19 @@ import { encodeBands, decodeBands, encodeSpectrum, decodeSpectrum } from './csv-
 const number = (name, field, digits = 1) => ({ name, field, get: (r) => num(r[field], digits), parse: parseNum });
 const text = (name, field) => ({ name, field, get: (r) => r[field] || '', parse: parseStr });
 const count = (name, field) => ({ name, field, get: (r) => String(r[field] ?? 0), parse: (s) => parseNum(s) ?? 0 });
+// A level that is never just missing: a blank cell is silence (written blank, see num()).
+const level = (name, field) => ({ name, field, get: (r) => num(r[field]), parse: (s) => parseNum(s) ?? -Infinity });
 
 export const CSV_COLUMNS = [
   text('wall_clock', 'wallClock'),
   { name: 'elapsed_s', field: 't', get: (r) => r.t.toFixed(1), parse: parseNum },
-  number('momentary_lufs', 'momentary'),
-  number('short_term_lufs', 'shortTerm'),
-  number('integrated_lufs', 'integrated'),
+  level('momentary_lufs', 'momentary'),
+  level('short_term_lufs', 'shortTerm'),
+  level('integrated_lufs', 'integrated'),
   number('lra_lu', 'lra'),
-  number('sample_peak_dbfs', 'samplePeakDb'),
-  number('true_peak_dbtp', 'truePeakDb'),
-  number('rms_dbfs', 'rmsDb'),
+  level('sample_peak_dbfs', 'samplePeakDb'),
+  level('true_peak_dbtp', 'truePeakDb'),
+  level('rms_dbfs', 'rmsDb'),
   number('crest_db', 'crestDb'),
   number('correlation', 'correlation', 4),
   number('side_mid_db', 'sideMidDb'),
@@ -38,7 +40,7 @@ export const CSV_COLUMNS = [
   number('dwell_runs_per_s', 'dwellRate'),
   number('pileup_ratio', 'pileRatio', 2),
   number('peaks_pinned', 'pinned', 2),
-  number('ceiling_dbfs', 'ceilingDb'),
+  level('ceiling_dbfs', 'ceilingDb'),
   count('fullscale_runs', 'fullScaleRuns'),
   { name: 'hum_mains_hz', field: 'humMainsHz', get: (r) => (r.humMainsHz ? String(r.humMainsHz) : ''), parse: parseNum },
   text('hum_status', 'humStatus'),

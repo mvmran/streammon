@@ -2,7 +2,7 @@
 // through the event log's rules (episodes.js), for reviewing a past session in File mode.
 // Columns are found by name, so older files with fewer columns load too; what a column
 // added later would have held is filled in where it can be worked out. Only what the CSV
-// holds can be shown: no spectrum, pan map or audio.
+// holds can be shown: no audio, hum harmonics or the live (100 ms) spectrogram.
 
 import { CLEAN, LIMITED, CLIPPING, sessionStatus } from './clipdetect.js';
 import { PRESENT, NOT_DETECTED, MASKED } from './hum.js';
@@ -42,14 +42,19 @@ export function parseCsv(text) {
   return records.filter((r) => r.length > 1 || r[0] !== '');
 }
 
-// Whether this computer writes dates day first (31/10/2026) or month first (10/31/2026).
+// Whether this computer writes dates day first (31/10/2026) or month first (10/31/2026);
+// worked out once (a formatter per row made a 2-hour file take most of a second).
+let dayFirstCached = null;
 function dayFirst() {
-  try {
-    const parts = new Intl.DateTimeFormat().formatToParts(new Date(2026, 9, 31));
-    return parts.findIndex((p) => p.type === 'day') < parts.findIndex((p) => p.type === 'month');
-  } catch {
-    return true;
+  if (dayFirstCached === null) {
+    try {
+      const parts = new Intl.DateTimeFormat().formatToParts(new Date(2026, 9, 31));
+      dayFirstCached = parts.findIndex((p) => p.type === 'day') < parts.findIndex((p) => p.type === 'month');
+    } catch {
+      dayFirstCached = true;
+    }
   }
+  return dayFirstCached;
 }
 
 // A wall-clock cell as exported ("2026-10-30 19:17:21", local time) or as a spreadsheet
@@ -62,7 +67,8 @@ export function parseWallClock(s) {
   let h = +time[1];
   if (time[4]) h = (h % 12) + (/p/i.test(time[4]) ? 12 : 0);
   let y = 2000, mo = 1, d = 1, dated = true, m;
-  if ((m = /(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s))) [y, mo, d] = [+m[1], +m[2], +m[3]];
+  // Year first: as exported (2026-10-30), or as Excel writes it in Japan or China (2026/10/30).
+  if ((m = /(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/.exec(s))) [y, mo, d] = [+m[1], +m[2], +m[3]];
   else if ((m = /(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})/.exec(s))) {
     const a = +m[1], b = +m[2];
     y = +m[3] < 100 ? 2000 + +m[3] : +m[3];
@@ -78,14 +84,16 @@ export function parseWallClock(s) {
 // seconds; otherwise from the row where the minute changes (that minute began during that
 // row's second, so within a second), or the middle of the first row's minute.
 function sessionStart(rows) {
-  const walls = rows.map((r) => parseWallClock(r.wallClock));
-  const exact = walls.findIndex((w) => w && w.seconds);
-  if (exact >= 0) return { ms: walls[exact].ms - rows[exact].t * 1000, dated: walls[exact].dated };
-  for (let k = 1; k < rows.length; k++) {
-    if (walls[k] && walls[k - 1] && walls[k].ms !== walls[k - 1].ms) return { ms: walls[k].ms - rows[k].t * 1000 + 500, dated: walls[k].dated };
+  // Rows are parsed only as far as needed: usually the first one decides.
+  let first = null, prev = null;
+  for (const r of rows) {
+    const w = parseWallClock(r.wallClock);
+    if (w && w.seconds) return { ms: w.ms - r.t * 1000, dated: w.dated };
+    if (w && prev && w.ms !== prev.w.ms) return { ms: w.ms - r.t * 1000 + 500, dated: w.dated };
+    if (w && !first) first = { w, t: r.t };
+    prev = w ? { w } : null;
   }
-  const first = walls.findIndex(Boolean);
-  return first >= 0 ? { ms: walls[first].ms + 30000 - rows[first].t * 1000, dated: walls[first].dated } : null;
+  return first ? { ms: first.w.ms + 30000 - first.t * 1000, dated: first.w.dated } : null;
 }
 
 const pad2 = (n) => String(n).padStart(2, '0');

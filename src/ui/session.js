@@ -2,7 +2,9 @@
 // file on disk as they arrive (File System Access API, Chrome/Edge).
 
 import { csvHeader, csvRow } from '../dsp/report.js';
+import { encodePan } from './pan-codec.js';
 
+const ENCODE_TIMEOUT_MS = 5000; // a pan map not compressed by then is left out of its row
 const MAX_ROWS = 12 * 3600; // 12 hours of 1-second rows (up to ~36 MB of text with the encoded chart columns)
 
 export class SessionRecorder {
@@ -17,8 +19,9 @@ export class SessionRecorder {
     this.queue = Promise.resolve();
     this.fileName = null;
     this.onDiskError = null; // (error, fileName) when writing to disk fails and stops
-    this.later = Promise.resolve(); // rows waiting to be finished (addLater), in order
+    this.later = Promise.resolve(); // live rows waiting for their pan map (addLive), in order
     this.generation = 0; // bumped by clear(): rows finished after it belong to the old session
+    this.added = 0; // rows ever added (attach() uses it to find rows added while it wrote)
   }
 
   clear() {
@@ -27,13 +30,20 @@ export class SessionRecorder {
     this.generation++;
   }
 
-  // A row finished asynchronously (its pan map is compressed): added once `ready` settles,
-  // in order with the rows before it, unless the session was cleared meanwhile.
-  addLater(row, ready) {
+  // A live second with its pan map grid (or null): the map is compressed into row.panCode
+  // (async), then the row is added, in order with the rows before it, unless the session was
+  // cleared meanwhile. A failed or slow compression (ENCODE_TIMEOUT_MS) leaves that cell
+  // empty rather than hold up the rows after it, and Stop and Export, which wait for them.
+  addLive(row, panGrid) {
     const generation = this.generation;
+    const encoded = encodePan(panGrid).then((code) => (row.panCode = code));
     this.later = this.later
-      .then(() => ready)
-      .catch(() => {}) // a failed encoding leaves that cell empty, not the row out
+      .then(() => {
+        let timer;
+        const timeout = new Promise((resolve) => (timer = setTimeout(resolve, ENCODE_TIMEOUT_MS)));
+        return Promise.race([encoded, timeout]).finally(() => clearTimeout(timer));
+      })
+      .catch(() => {})
       .then(() => {
         if (this.generation === generation) this.add(row);
       });
@@ -47,6 +57,7 @@ export class SessionRecorder {
   add(row) {
     const line = csvRow(row);
     this.rows.push(line);
+    this.added++;
     if (this.rows.length > MAX_ROWS) {
       this.rows.shift();
       this.dropped++;
@@ -79,12 +90,17 @@ export class SessionRecorder {
   // (until then it sits in a swap file that a crash or reload throws away). So rows are
   // committed every COMMIT_MS by opening, appending and closing; at most that much is lost.
   async attach(handle) {
+    // What is written, and how many rows that is, taken together before anything waits.
+    const text = csvHeader() + this.rows.join('');
+    const written = this.added;
     const w = await handle.createWritable(); // empties the file
-    await w.write(csvHeader() + this.rows.join(''));
+    await w.write(text);
     await w.close();
     this.handle = handle;
     this.fileName = handle.name;
-    this.pending = '';
+    // Rows added while it wrote (live rows finish at any moment) go in the next commit.
+    const since = Math.min(this.rows.length, this.added - written);
+    this.pending = since > 0 ? this.rows.slice(-since).join('') : '';
     this.timer = setInterval(() => this.commit(), SessionRecorder.COMMIT_MS);
   }
 
@@ -124,6 +140,7 @@ export class SessionRecorder {
   async stopDisk() {
     if (!this.handle) return;
     await this.later; // the last rows, still being finished
+    if (!this.handle) return; // a failed write stopped the recording meanwhile (and said so)
     await this.commit();
     this.detach();
   }

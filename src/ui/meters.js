@@ -56,12 +56,12 @@ export class MetersView {
     const cfg = this.getConfig();
     setText(el.st, fmtDb(f.shortTerm));
     setText(el.mom, fmtDb(f.momentary));
-    if (f.shortTerm > cfg.shortTermHigh.lufs) setChip(el.stChip, 'critical', 'too loud');
+    if (Number.isFinite(f.shortTerm) && f.shortTerm > cfg.shortTermHigh.lufs) setChip(el.stChip, 'critical', 'too loud');
     else if (f.shortTerm >= -16 && f.shortTerm <= -12) setChip(el.stChip, 'good', 'on target');
     else setChip(el.stChip, '', '');
     setText(el.tp, fmtDb(f.maxTruePeakDb));
     setText(el.tpNow, fmtDb(f.truePeakDb));
-    const over = f.maxTruePeakDb > cfg.truePeak.dbtp;
+    const over = Number.isFinite(f.maxTruePeakDb) && f.maxTruePeakDb > cfg.truePeak.dbtp;
     setChip(el.tpChip, 'warning', over ? '⚠ no headroom' : '');
     if (el.tpTile) el.tpTile.classList.toggle('alerting', over);
     setText(el.crest, fmtDb(f.crestDb));

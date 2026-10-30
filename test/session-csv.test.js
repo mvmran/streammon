@@ -8,7 +8,8 @@ import { csvHeader, csvRow } from '../src/dsp/report.js';
 import { parseCsv, readSessionCsv, sessionEvents, sessionSummary, rowAt, stepRows } from '../src/dsp/session-csv.js';
 import { AlertMonitor, DEFAULT_ALERTS } from '../src/dsp/alerts.js';
 import { PanGrid, PAN_COLS, PAN_ROWS } from '../src/dsp/pan.js';
-import { encodeSpectrum, decodeSpectrum, encodeBands, decodeBands, encodePan, decodePan, SAFE_CODE, toBase64Url, fromBase64Url } from '../src/dsp/csv-codec.js';
+import { encodeSpectrum, decodeSpectrum, encodeBands, decodeBands, SAFE_CODE, toBase64Url, fromBase64Url } from '../src/dsp/csv-codec.js';
+import { encodePan, decodePan } from '../src/ui/pan-codec.js';
 import { statusDetail } from '../src/ui/meters.js';
 
 const sr = 48000;
@@ -51,7 +52,18 @@ describe('session CSV', () => {
     assert.equal(rows[i].clock, s.rows[i].wallClock.slice(11));
     assert.equal(startWall, s.start);
     assert.equal(s.rows[0].shortTerm, -Infinity);
-    assert.equal(rows[0].shortTerm, null, 'silence is written blank: spreadsheets turn "-inf" into #NAME?');
+    assert.equal(rows[0].shortTerm, -Infinity, 'silence is written blank (spreadsheets turn "-inf" into #NAME?) and read back as silence');
+  });
+
+  test('digital silence raises no alerts after a CSV round trip', () => {
+    const silent = new Float32Array(20 * sr);
+    const rs = [];
+    const an = new StreamAnalyzer(sr, { onSecond: (r) => rs.push(r) });
+    an.process(silent, silent);
+    const back = readSessionCsv(csvHeader() + rs.map(csvRow).join('')).rows;
+    const mon = new AlertMonitor(DEFAULT_ALERTS);
+    const raised = back.flatMap((r) => mon.update(r).raised).filter((a) => a.id !== 'integratedOff');
+    assert.deepEqual(raised.map((a) => a.id), [], raised.map((a) => a.message).join('; '));
   });
 
   test('the rebuilt log matches the live one: clip episodes, hum and stereo', () => {
@@ -191,6 +203,13 @@ describe('session CSV from file analysis and older versions', () => {
     }
   });
 
+  test('year-first dates with slashes (Excel in Japan or China) keep their year', async () => {
+    const { parseWallClock } = await import('../src/dsp/session-csv.js');
+    const w = parseWallClock('2026/10/30 19:17');
+    assert.equal(new Date(w.ms).getFullYear(), 2026);
+    assert.equal(new Date(w.ms).getDate(), 30);
+  });
+
   test('a clock nothing can be made of is not shown in pieces', () => {
     const [header, ...recs] = parseCsv(text);
     const w = header.indexOf('wall_clock');
@@ -235,7 +254,7 @@ describe('encoded chart data (stereo_bands, spectrum, pan_map)', () => {
     assert.equal(back[9].fc, 16000);
   });
 
-  test('pan map: the full grid in 3 dB steps over 45 dB below each band\'s loudest cell', async () => {
+  test('pan map: the full grid in 3 dB steps, down to about 43.5 dB below each band\'s loudest cell', async () => {
     const g = new PanGrid();
     g.update(spectrumWith([binOf(1000), binOf(250)]), spectrumWith([binOf(1050), binOf(250)]), sr, 0);
     const grid = g.takeSecond();
@@ -243,8 +262,9 @@ describe('encoded chart data (stereo_bands, spectrum, pan_map)', () => {
     for (let i = 0; i < grid.length; i++) {
       const a = grid[i], b = back[i];
       const top = Math.max(...grid.subarray(Math.floor(i / PAN_COLS) * PAN_COLS, (Math.floor(i / PAN_COLS) + 1) * PAN_COLS));
-      if (!(a > top * 10 ** -4.5)) assert.equal(b, 0, `cell ${i} more than 45 dB down`);
-      else assert.ok(Math.abs(10 * Math.log10(b / a)) <= 1.8, `cell ${i}: ${b} vs ${a}`);
+      const below = a > 0 ? 10 * Math.log10(top / a) : Infinity;
+      if (below > 43.6) assert.equal(b, 0, `cell ${i} ${below.toFixed(1)} dB down`);
+      else if (below < 43.4) assert.ok(Math.abs(10 * Math.log10(b / a)) <= 1.8, `cell ${i}: ${b} vs ${a}`);
     }
   });
 
@@ -276,17 +296,51 @@ describe('encoded chart data (stereo_bands, spectrum, pan_map)', () => {
     assert.deepEqual([none.bands, none.spectrumDb, none.panCode], [null, null, null]);
   });
 
-  test('the recorder keeps rows in order while their pan maps are encoded, and drops them after a clear', async () => {
+  test('the recorder keeps live rows in order while their pan maps are compressed, and drops them after a clear', async () => {
     const { SessionRecorder } = await import('../src/ui/session.js');
     const rec = new SessionRecorder();
-    const slow = new Promise((r) => setTimeout(r, 30));
-    rec.addLater({ t: 1, status: 'CLEAN', detectors: [] }, slow);
-    rec.addLater({ t: 2, status: 'CLEAN', detectors: [] }, Promise.resolve());
+    const grid = new Float64Array(PAN_ROWS * PAN_COLS).map((_, i) => (i % 7) * 1e-6);
+    for (let t = 1; t <= 5; t++) rec.addLive({ t, status: 'CLEAN', detectors: [] }, t % 2 ? grid : null);
     await rec.later;
-    assert.deepEqual(rec.rows.map((l) => l.split(',')[1]), ['1.0', '2.0']);
-    rec.addLater({ t: 3, status: 'CLEAN', detectors: [] }, new Promise((r) => setTimeout(r, 10)));
+    assert.deepEqual(rec.rows.map((l) => l.split(',')[1]), ['1.0', '2.0', '3.0', '4.0', '5.0']);
+    assert.match(rec.rows[0].trim().split(',').at(-1), SAFE_CODE, 'the pan map is in the row');
+    rec.addLive({ t: 6, status: 'CLEAN', detectors: [] }, grid);
     rec.clear();
     await rec.later;
     assert.equal(rec.count, 0, 'a row finished after Reset belongs to the old session');
+  });
+
+  test('a row added while a disk recording starts still reaches the file', async () => {
+    const { SessionRecorder } = await import('../src/ui/session.js');
+    const rec = new SessionRecorder();
+    const file = { text: '' };
+    // A file handle whose writer takes a moment to open, as Chrome's does.
+    const handle = {
+      name: 'test.csv',
+      async getFile() {
+        return { size: file.text.length };
+      },
+      async createWritable({ keepExistingData = false } = {}) {
+        let buf = keepExistingData ? file.text : '', pos = buf.length;
+        await new Promise((r) => setTimeout(r, 20));
+        return { seek: async (p) => (pos = p), write: async (t) => ((buf = buf.slice(0, pos) + t), (pos += t.length)), close: async () => (file.text = buf), abort: async () => {} };
+      },
+    };
+    rec.add({ t: 1, status: 'CLEAN', detectors: [] });
+    const attaching = rec.attach(handle);
+    rec.add({ t: 2, status: 'CLEAN', detectors: [] }); // arrives while the file is being written
+    await attaching;
+    await rec.stopDisk();
+    const times = file.text.trim().split('\n').slice(1).map((l) => l.split(',')[1]);
+    assert.deepEqual(times, ['1.0', '2.0']);
+  });
+
+  test('a damaged encoded cell loses that second\'s chart, not the file', async () => {
+    assert.equal(decodeBands('b1abc+def/=='), null);
+    assert.equal(decodeSpectrum('s1 not valid'), null);
+    assert.equal(await decodePan('p1AAAA'), null);
+    const row = { t: 1, status: 'CLEAN', detectors: [], spectrumDb: Array.from({ length: 29 }, () => -30) };
+    const line = csvRow(row).replace(/s1[A-Za-z0-9_-]+/, 's1 broken=');
+    assert.equal(readSessionCsv(csvHeader() + line).rows[0].spectrumDb, null);
   });
 });
