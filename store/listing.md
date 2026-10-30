@@ -32,14 +32,15 @@ WHAT IT MEASURES
 • True peak (dBTP) with 4x oversampling
 • Crest factor and a stereo status: MONO / STEREO OK / WIDE / UNBALANCED / PHASE PROBLEM / CHANNEL DEAD
 • Stereo by band, a pan map and a correlation history, to spot phase and balance problems (in the full dashboard)
-• Mains hum detection (50 or 60 Hz): present / not detected / masked by music, level, harmonics, and how loud it would be if the speech were turned up (in the full dashboard; hum alerts show everywhere)
+• Mains hum detection (50 or 60 Hz): present / not detected / masked by music, level, harmonics, buzz in the pauses, and how loud it would be if the speech were turned up (in the full dashboard; hum alerts show everywhere)
 • Spectrum (with the octave balance readings on its average line), spectrogram with an adjustable floor, and octave balance, with hover readings (in the full dashboard)
 
 ALERTS AND RECORDS
-• Banner and Chrome notification alerts for clipping, true peak above -1 dBTP, sustained loudness above -10 LUFS, integrated loudness far from -14 LUFS, mains hum, a dead channel (one side silent), and stereo phase or balance problems (all adjustable; optional beep, off by default)
+• Banner and Chrome notification alerts for clipping, true peak above -1 dBTP, sustained loudness above -10 LUFS, integrated loudness far from -14 LUFS, mains hum, hum in pauses (the buzz people hear when it goes quiet), a dead channel (one side silent), and stereo phase or balance problems (all adjustable; optional beep, off by default)
 • Timestamped event log, including changes in the stereo status
 • Reset: clear the readings, charts and log for a new song or section without stopping monitoring
-• Export the session as CSV (one row per second) or a JSON summary
+• Export the session as CSV (one row per second, including the spectrum, Stereo by band and pan map) or a JSON summary
+• Review a saved CSV afterwards in the free web app (https://mvmran.github.io/streammon/): scrub through the service and see every reading, chart and log entry at any moment
 • Hover the ⓘ on any card for a plain-language explanation
 
 PRIVATE BY DESIGN
