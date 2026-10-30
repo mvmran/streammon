@@ -89,8 +89,10 @@ CSVs recorded live from 31 October 2026 also hold each second's **Stereo by band
 Octave balance, a coarse spectrogram (one band per colour, about the last 2 minutes) and the
 pan map follow along too. They are in three columns, `stereo_bands`, `spectrum` and
 `pan_map`, as compact encoded text (like `p1eJzt…`): not readable in a spreadsheet, but safe
-to open and re-save in Excel or Google Sheets (only letters, digits, `-` and `_`, never
-starting with a symbol, number or date). The pan map is compressed and stored in 3 dB steps
+to open, edit and re-save in Excel or Google Sheets (only letters, digits, `-` and `_`,
+never starting with a symbol, number or date). Spreadsheets also rewrite the clock column as
+a date without seconds; the app reads that and works the seconds out again, and silent
+seconds are written as blank cells so they don't turn into `#NAME?`. The pan map is compressed and stored in 3 dB steps
 over its 45 dB display range. A 2-hour service is about 6 MB with stereo music and about
 3 MB for mostly speech (1.2 MB without these columns). A CSV holds one row of readings per
 second, so there is no audio or hum harmonics, and integrated-loudness resets are only in the

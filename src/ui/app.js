@@ -499,8 +499,8 @@ async function openCsv(file) {
   try {
     const text = await file.text();
     if (job.signal.aborted) return;
-    const { rows, startWall, fileAnalysis } = readSessionCsv(text);
-    state.file = { name: file.name, source: file, csv: true, rows, startWall, fileAnalysis, summary: sessionSummary(rows) };
+    const { rows, startWall, startDated, fileAnalysis } = readSessionCsv(text);
+    state.file = { name: file.name, source: file, csv: true, rows, startWall, startDated, fileAnalysis, summary: sessionSummary(rows) };
     state.file.events = csvEvents(state.file);
     showFileResult(0);
     if (document.activeElement === el.source) el.source.blur(); // so ← → step, not switch the source
@@ -565,7 +565,7 @@ function showFileResult(analysisSecs, moment = null) {
   setText(el.fileName, f.name);
   const speed = analysisSecs > 0 ? Math.round(s.duration / analysisSecs) : 0;
   const statusSecs = s.statusSeconds;
-  const csvStart = f.csv && f.startWall !== null ? fmtStamp(new Date(f.startWall)) : '';
+  const csvStart = f.csv && f.startWall !== null ? (f.startDated ? fmtStamp : fmtClock)(new Date(f.startWall)) : '';
   el.fileSummary.innerHTML = [
     ['Status', `<span class="ev ev-${s.overallStatus}">${s.overallStatus}</span>`],
     ['Duration', fmtDuration(s.duration)],

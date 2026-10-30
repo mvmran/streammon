@@ -42,12 +42,53 @@ export function parseCsv(text) {
   return records.filter((r) => r.length > 1 || r[0] !== '');
 }
 
-// "2026-10-30 19:17:21" (local time, as exported) -> ms since the epoch, or null (e.g. a
-// spreadsheet re-saved it as "10/30/2026 7:17:21 PM", which could be either day order).
-function parseStamp(s) {
-  const m = s && /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d):(\d\d)/.exec(s);
-  return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime() : null;
+// Whether this computer writes dates day first (31/10/2026) or month first (10/31/2026).
+function dayFirst() {
+  try {
+    const parts = new Intl.DateTimeFormat().formatToParts(new Date(2026, 9, 31));
+    return parts.findIndex((p) => p.type === 'day') < parts.findIndex((p) => p.type === 'month');
+  } catch {
+    return true;
+  }
 }
+
+// A wall-clock cell as exported ("2026-10-30 19:17:21", local time) or as a spreadsheet
+// saved it back: Excel and Google Sheets turn it into a date in the computer's own format
+// and drop the seconds ("30/10/2026 7:17", "10/30/2026 7:17:21 PM"). Returns { ms, seconds:
+// whether it had them, dated: whether it had a date } or null.
+export function parseWallClock(s) {
+  const time = s && /(\d{1,2}):(\d\d)(?::(\d\d))?\s*([AaPp][Mm])?/.exec(s);
+  if (!time) return null;
+  let h = +time[1];
+  if (time[4]) h = (h % 12) + (/p/i.test(time[4]) ? 12 : 0);
+  let y = 2000, mo = 1, d = 1, dated = true, m;
+  if ((m = /(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s))) [y, mo, d] = [+m[1], +m[2], +m[3]];
+  else if ((m = /(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})/.exec(s))) {
+    const a = +m[1], b = +m[2];
+    y = +m[3] < 100 ? 2000 + +m[3] : +m[3];
+    // Unambiguous when one of them is over 12; otherwise this computer's order, which is
+    // the one the spreadsheet on it wrote.
+    [d, mo] = a > 12 ? [a, b] : b > 12 ? [b, a] : dayFirst() ? [a, b] : [b, a];
+  } else dated = false;
+  const ms = new Date(y, mo - 1, d, h, +time[2], time[3] === undefined ? 0 : +time[3]).getTime();
+  return Number.isFinite(ms) ? { ms, seconds: time[3] !== undefined, dated } : null;
+}
+
+// The session's start on the wall clock (ms) from the rows' clocks: exact when they have
+// seconds; otherwise from the row where the minute changes (that minute began during that
+// row's second, so within a second), or the middle of the first row's minute.
+function sessionStart(rows) {
+  const walls = rows.map((r) => parseWallClock(r.wallClock));
+  const exact = walls.findIndex((w) => w && w.seconds);
+  if (exact >= 0) return { ms: walls[exact].ms - rows[exact].t * 1000, dated: walls[exact].dated };
+  for (let k = 1; k < rows.length; k++) {
+    if (walls[k] && walls[k - 1] && walls[k].ms !== walls[k - 1].ms) return { ms: walls[k].ms - rows[k].t * 1000 + 500, dated: walls[k].dated };
+  }
+  const first = walls.findIndex(Boolean);
+  return first >= 0 ? { ms: walls[first].ms + 30000 - rows[first].t * 1000, dated: walls[first].dated } : null;
+}
+
+const pad2 = (n) => String(n).padStart(2, '0');
 
 // The Stereo card's reason for files saved before stereo_detail existed (2026-10-22 to
 // 10-25), worked out from the balance where it can be; the alerts quote it. A dead channel's
@@ -104,14 +145,16 @@ export function readSessionCsv(text) {
     rows.push(row);
   }
   if (!rows.length) throw new Error('the CSV has no rows');
-  let startWall = null;
+  // Each row's clock from the start and its elapsed time, so a spreadsheet's re-saved
+  // clocks (minutes only) get their seconds back.
+  const start = sessionStart(rows);
+  const startWall = start ? start.ms : null;
   for (const r of rows) {
-    const ms = parseStamp(r.wallClock);
-    r.clock = ms === null ? null : r.wallClock.slice(11, 19);
-    if (startWall === null && ms !== null) startWall = ms - r.t * 1000;
+    const d = startWall === null ? null : new Date(startWall + r.t * 1000);
+    r.clock = d ? `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}` : null;
   }
   const fileAnalysis = rows.every((r) => !r.wallClock);
-  return { rows, startWall, fileAnalysis };
+  return { rows, startWall, startDated: !!(start && start.dated), fileAnalysis };
 }
 
 // Replays rows through the event log's rules. humOptions: { alertLevelDbfs } (the current

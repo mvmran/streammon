@@ -1,6 +1,7 @@
 // CSV rows and JSON summary for session export.
 
-// Parses one exported cell back: the inverse of num().
+// Parses one exported cell back: the inverse of num(). A spreadsheet's error value
+// (#NAME?, #VALUE!) reads as no reading.
 export function parseNum(s) {
   if (s === '' || s === undefined) return null;
   if (s === '-inf') return -Infinity;
@@ -61,10 +62,11 @@ export const CSV_COLUMNS = [
   text('pan_map', 'panCode'),
 ];
 
+// Silence (−∞ dB) is written as a blank, like a missing reading: Excel and Google Sheets
+// read "-inf" as a formula and save it back as #NAME? (and a chart gets a gap, not a spike).
+// Files written before 2026-10-31 have "-inf", which parseNum still reads.
 function num(x, digits = 1) {
-  if (x === null || x === undefined || Number.isNaN(x)) return '';
-  if (x === -Infinity) return '-inf';
-  if (x === Infinity) return 'inf';
+  if (x === null || x === undefined || !Number.isFinite(x)) return '';
   return x.toFixed(digits);
 }
 

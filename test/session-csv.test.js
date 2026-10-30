@@ -50,7 +50,8 @@ describe('session CSV', () => {
     assert.deepEqual(rows[i].detectors, s.rows[i].detectors);
     assert.equal(rows[i].clock, s.rows[i].wallClock.slice(11));
     assert.equal(startWall, s.start);
-    assert.equal(rows[0].shortTerm, -Infinity); // "-inf" in the first seconds
+    assert.equal(s.rows[0].shortTerm, -Infinity);
+    assert.equal(rows[0].shortTerm, null, 'silence is written blank: spreadsheets turn "-inf" into #NAME?');
   });
 
   test('the rebuilt log matches the live one: clip episodes, hum and stereo', () => {
@@ -177,10 +178,23 @@ describe('session CSV from file analysis and older versions', () => {
     assert.ok(Math.abs(sessionSummary(readSessionCsv(blanked).rows).truePeakDb - best) < 0.06);
   });
 
-  test('a clock re-saved by a spreadsheet is not shown in pieces', () => {
+  test('clocks re-saved by Excel or Google Sheets: read in their formats, seconds recovered', () => {
+    // As they save "2026-10-31 07:42:33" on an Australian computer: a date, no seconds.
+    const [header, ...recs] = parseCsv(text);
+    const w = header.indexOf('wall_clock'), e = header.indexOf('elapsed_s');
+    const start = new Date(2026, 9, 31, 7, 42, 33).getTime();
+    for (const fmt of [(d) => `${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`, (d) => `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()} ${d.getHours() % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')} ${d.getHours() < 12 ? 'AM' : 'PM'}`]) {
+      for (const r of recs) r[w] = fmt(new Date(start + Number(r[e]) * 1000));
+      const back = readSessionCsv([header, ...recs].map((r) => r.join(',')).join('\n'));
+      assert.ok(back.startDated && Math.abs(back.startWall - start) <= 1000, `start ${new Date(back.startWall)} for ${recs[0][w]}`);
+      assert.equal(back.rows[30].clock, '07:43:04', 'row clocks get their seconds back (t = 31 s)');
+    }
+  });
+
+  test('a clock nothing can be made of is not shown in pieces', () => {
     const [header, ...recs] = parseCsv(text);
     const w = header.indexOf('wall_clock');
-    for (const r of recs) r[w] = '10/30/2026 7:17:21 PM';
+    for (const r of recs) r[w] = 'Friday afternoon';
     const back = readSessionCsv([header, ...recs].map((r) => r.join(',')).join('\n'));
     assert.equal(back.startWall, null);
     assert.equal(back.rows[0].clock, null);
