@@ -95,7 +95,7 @@ A steady pure sine looks exactly like limited audio, so the synthetic "programme
 - phase residual ≤ 0.5 rad;
 - level std ≤ 2 dB, excluding windows that straddle a logged step.
 
-A status is held for 2 s.
+A status is held for 2 s. While held (no window locked), the result reports the hum as last locked (`lastLock`: frequency, level, prominence) and measures at that frequency: the peak found then is often the bass note that ended the lock (live, 2026-10-30: 50.75 Hz at −37 dBFS reported as the hum).
 
 **MASKED vs NOT DETECTED.** Decided by the mean grid power in f0 ± 5 Hz, excluding the hum's own bins.
 
@@ -111,6 +111,8 @@ A status is held for 2 s.
 - MASKED vs NOT DETECTED is judged against a fixed `maskReferenceDbfs` (−75): could a hum that loud have stood out? It used to be the alert level, which made lowering the alert level (default −85 dBFS since settings version 2) turn ordinary speech into MASKED.
 - Settings are saved as differences from `DEFAULT_ALERTS` (`changedFromDefaults`, version 2), so default changes reach everyone who didn't change that value. `migrateSaved` moves version-1 saves (every value stored) that still hold an old default (−75, or a −100 spectrogram floor) to the new one.
 - `Reference_hum.wav` (2026-10-30): a speaker session with audible buzz in the pauses. 50 Hz at about −90 dBFS (PRESENT only 31–36 s, about −86 dBFS), but 150/350 Hz at about −81 dBFS; the pause background (−73 dBFS) is mostly that buzz. Also a steady 30.000 Hz tone at −92 dBFS, not mains-locked (probably 30 fps video gear), which the hum detector doesn't look for.
+
+**Event log** (`trackHumLog` in `analyzer.js`, `HUM_LOG`). The detector emits `hum-onset` / `hum-offset` on every PRESENT change; the analyzer drops those and logs episodes instead: a second counts when the hum is PRESENT at or above `alertLevelDbfs`; an episode is logged after `onSeconds` (10) of those in a row, dated from the first, and ends `offSeconds` (30) after the last, dated then (`belowDb` set when it is still PRESENT but quieter: "Mains hum quieter"). Level steps are only passed on during a logged episode. On the 2026-10-30 live CSV (a −89 dBFS hum flipping at the edge of detection) that is 6 entries instead of 152. The panel's NOT DETECTED line mentions a pause reading from the last 60 s ("buzz in pauses at … dBFS") rather than saying "Nothing at 50 Hz".
 
 **Integration.** `StreamAnalyzer` adds audibility (`belowProgrammeDb`, and `projectedDb` at speechTargetLufs from integrated loudness) and puts the hum fields in each 1 s row. The hum settings live in the alert config's `hum` section (`humOptionsFrom`).
 

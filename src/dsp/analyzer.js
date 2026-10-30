@@ -9,6 +9,7 @@
 //   onHum(result)    every 0.5 s: mains hum measurement (see hum.js), with audibility
 //   onEvent(event)   clip status changes: { type: 'start' | 'end', status, t, ... };
 //                    hum: { type: 'hum-onset' | 'hum-offset' | 'hum-step' | 'hum-config', t, ... }
+//                    (onset/offset per HUM_LOG, not every PRESENT change: see trackHumLog)
 //                    stereo status changes: { type: 'stereo', t, status, detail, previous, previousSeconds }
 //                    (file analysis: MONO, UNBALANCED mono, CHANNEL DEAD or STEREO, i.e. none of these)
 
@@ -24,6 +25,12 @@ export { CLEAN, LIMITED, CLIPPING };
 
 const SEVERITY = { [CLEAN]: 0, [LIMITED]: 1, [CLIPPING]: 2 };
 
+// Which hum gets logged. A faint hum at the edge of detection flips in and out of PRESENT
+// (live 2026-10-30: 152 onsets in 2 h for an inaudible -89 dBFS hum), so an episode is
+// logged only for hum at or above the alert level for onSeconds in a row, dated from when
+// it began, and ends after offSeconds without it. On that session: 6 entries.
+export const HUM_LOG = { onSeconds: 10, offSeconds: 30 };
+
 export class StreamAnalyzer {
   constructor(sampleRate, { onFrame = null, onSecond = null, onEvent = null, onHum = null, clipOptions = {}, humOptions = {} } = {}) {
     this.sampleRate = sampleRate;
@@ -36,7 +43,7 @@ export class StreamAnalyzer {
     this.hum = new HumDetector(sampleRate, humOptions, {
       // The detector counts time from its own (re)start: shift it to session time.
       onResult: (r) => this.humResult(this.humFrom ? { ...r, t: r.t + this.humFrom } : r),
-      onEvent: (e) => this.emit(this.humFrom ? { ...e, t: e.t + this.humFrom } : e),
+      onEvent: (e) => this.humEvent(this.humFrom ? { ...e, t: e.t + this.humFrom } : e),
     });
     this.tp = [new TruePeakChannel(), new TruePeakChannel()];
     this.clip = new ClipDetector(sampleRate, clipOptions);
@@ -66,6 +73,7 @@ export class StreamAnalyzer {
     this.lastHum = null;
     this.humSeconds = { [HUM_PRESENT]: 0, [HUM_NOT_DETECTED]: 0, [HUM_MASKED]: 0 };
     this.humMaxDb = -Infinity;
+    this.humLog = { run: 0, since: 0, active: false, start: 0, lastT: 0 };
     this.frames = 0; // completed 100 ms frames
     this.n = 0; // frames into the current 100 ms frame
     this.f = { peak: 0, tp: 0, ll: 0, rr: 0, lr: 0 };
@@ -182,6 +190,7 @@ export class StreamAnalyzer {
     this.dwellSum += c.dwell;
     this.fullScaleSamples += c.fullScaleSamples;
     this.trackEpisode(c, t);
+    this.trackHumLog(h, t);
 
     const stereo = this.stereo.current;
     const dead = this.deadSide();
@@ -251,6 +260,36 @@ export class StreamAnalyzer {
     this.emit({ type: 'stereo', t: s.since, status, detail, previous: s.logged, previousSeconds: s.logged ? s.since - s.loggedSince : 0 });
     s.logged = status;
     s.loggedSince = s.since;
+  }
+
+  // The detector reports every PRESENT change; the log gets episodes per HUM_LOG instead.
+  // Level steps are only passed on during a logged episode.
+  humEvent(e) {
+    if (e.type === 'hum-onset' || e.type === 'hum-offset') return;
+    if (e.type === 'hum-step' && !this.humLog.active) return;
+    this.emit(e);
+  }
+
+  // A second counts when the hum is PRESENT at or above the alert level. An episode is
+  // logged after HUM_LOG.onSeconds of those in a row (dated from the first), and ends
+  // HUM_LOG.offSeconds after the last one (dated then).
+  trackHumLog(h, t) {
+    const L = this.humLog;
+    const counts = h && h.present && h.levelDb >= this.hum.opt.alertLevelDbfs;
+    if (!counts) {
+      L.run = 0;
+      if (L.active && t - L.lastT >= HUM_LOG.offSeconds) {
+        L.active = false;
+        this.emit({ type: 'hum-offset', t: L.lastT, status: h ? h.status : HUM_NOT_DETECTED, duration: L.lastT - L.start, belowDb: h && h.present ? this.hum.opt.alertLevelDbfs : null, mainsHz: this.hum.opt.mainsFrequencyHz });
+      }
+      return;
+    }
+    if (L.run++ === 0) L.since = Math.max(0, t - 1);
+    L.lastT = t;
+    if (L.active || L.run < HUM_LOG.onSeconds) return;
+    L.active = true;
+    L.start = L.since;
+    this.emit({ type: 'hum-onset', t: L.since, levelDb: h.levelDb, frequencyHz: h.fundamentalHz, harmonic: h.refHarmonic, mainsHz: this.hum.opt.mainsFrequencyHz });
   }
 
   // Reports status episodes: a 'start' when the status worsens or changes, and an

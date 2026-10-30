@@ -94,7 +94,11 @@ export class EventLog {
   static fromHumEvent(e, clock, seekable = false) {
     const base = { clock, t: e.t, kind: 'hum', seekable };
     if (e.type === 'hum-onset') return { ...base, title: 'Mains hum detected', detail: `${fmtDb(e.levelDb)} dBFS at ${fmtHz(e.frequencyHz)} (${e.mainsHz} Hz mains)` };
-    if (e.type === 'hum-offset') return { ...base, kind: 'CLEAN', title: 'Mains hum gone', detail: `now ${e.status.toLowerCase()} · lasted ${fmtDuration(e.duration)}` };
+    if (e.type === 'hum-offset') {
+      // Still PRESENT but below the alert level, or not detected / masked.
+      const now = e.belowDb != null ? `now below ${fmtDb(e.belowDb, 0)} dBFS` : `now ${e.status.toLowerCase()}`;
+      return { ...base, kind: 'CLEAN', title: e.belowDb != null ? 'Mains hum quieter' : 'Mains hum gone', detail: `${now} · lasted ${fmtDuration(e.duration)}` };
+    }
     if (e.type === 'hum-step') return { ...base, title: 'Hum level step', detail: `${fmtDb(e.beforeDb)} → ${fmtDb(e.afterDb)} dBFS (${fmtDb(e.changeDb)} dB)` };
     return { ...base, kind: e.warning ? 'alert' : 'info', title: e.warning ? 'Hum settings' : 'Mains setting', detail: e.message };
   }

@@ -151,7 +151,7 @@ async function main() {
     await sw.evaluate((url) => self.streammonTestStart(url, 'Sister church service (test)'), speech);
     await dash.waitForFunction(() => document.getElementById('hum-status-text').textContent === 'PRESENT', null, { timeout: 25000 });
     check(/^50\.0\d Hz$/.test(await dash.textContent('#hum-freq')), `dashboard hum frequency ${await dash.textContent('#hum-freq')}`);
-    await dash.waitForFunction(() => /Mains hum detected/.test(document.getElementById('log-body').textContent), null, { timeout: 5000 });
+    await dash.waitForFunction(() => /Mains hum detected/.test(document.getElementById('log-body').textContent), null, { timeout: 15000 }); // logged once PRESENT for 10 s
     check((await dash.textContent('#hum-status-text')) === 'PRESENT', 'dashboard hum panel PRESENT, onset logged');
     await panel.waitForFunction(() => /Mains hum/.test(document.getElementById('alerts').textContent), null, { timeout: 15000 });
     check(true, 'mains hum alert banner in the side panel');

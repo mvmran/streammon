@@ -253,6 +253,7 @@ export class HumDetector {
     this.mainsPhase = 0; // tracked mains phase (fundamental-equivalent, relative to f0)
     this.avgSince = null; // when the harmonic averages (re)started, while present
     this.lastPresentT = -Infinity;
+    this.lastLock = null; // { hz, levelDb, prominenceDb } from the last window that locked
     this.lastPassT = -Infinity;
     this.pause = null; // { levelDb, lines, buzz, t }: hum measured in the latest quiet second
     this.last = null;
@@ -407,7 +408,10 @@ export class HumDetector {
     // near 50 Hz doesn't drag the 100 Hz measurement onto a nearby pad tone.
     if (locked >= 0) this.lastPresentT = t;
     const present = t - this.lastPresentT <= 2; // held 2 s so one doubtful window doesn't flicker
-    const measuredHz = main.freq / main.k;
+    // While held, the peak found is often a bass note that ended the lock (live: 50.75 Hz at
+    // -37 dBFS): report the hum as last locked instead, and keep measuring at its frequency.
+    const holding = present && locked < 0 && this.lastLock !== null;
+    const measuredHz = holding ? this.lastLock.hz : main.freq / main.k;
     const fundamentalHz = present ? measuredHz : o.mainsFrequencyHz;
 
     // Mains phase tracker: advance by the measured frequency offset, then pull onto the
@@ -478,6 +482,9 @@ export class HumDetector {
     const mnd = Math.max(-this.M + this.dispStep, Math.min(this.M - this.dispStep, Math.round(mpd)));
     const [dre, dim] = this.hann(kd, mnd, sd0, this.Sd, this.dispStep);
     const displayDb = db(Math.hypot(dre, dim) / Math.max(0.1, hannGain((mpd - mnd) / this.dispStep)));
+    if (locked >= 0) this.lastLock = { hz: measuredHz, levelDb: displayDb, prominenceDb: main.prominence };
+    else if (!present) this.lastLock = null;
+    const shown = holding ? this.lastLock : { levelDb: displayDb, prominenceDb: main.prominence };
 
     // Hum in pauses: whenever the whole last second was quiet (works whether or not the hum
     // is PRESENT, which needs it to stand out through the speech for seconds on end). It uses
@@ -540,10 +547,10 @@ export class HumDetector {
       present,
       refHarmonic: main.k,
       fundamentalHz: measuredHz,
-      levelDb: displayDb, // live (1 s) level of the reference harmonic
+      levelDb: shown.levelDb, // live (1 s) level of the reference harmonic (as last locked while held)
       detectLevelDb: main.levelDb, // 4 s level
       nominalDb, // 4 s level at exactly f0
-      prominenceDb: main.prominence,
+      prominenceDb: shown.prominenceDb,
       controlDb: main.controlDb,
       locked: main.locked,
       phaseResidual: checks[refIdx] ? checks[refIdx].residual : null,

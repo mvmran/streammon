@@ -245,6 +245,49 @@ describe('hum configuration', () => {
   });
 });
 
+describe('hum in the event log', () => {
+  const sr = 48000;
+  const logged = (x, humOptions = {}) => {
+    const events = [], rows = [];
+    const a = new StreamAnalyzer(sr, { onEvent: (e) => events.push(e), onSecond: (r) => rows.push(r), humOptions });
+    for (let i = 0; i < x.length; i += 4800) a.process(x.subarray(i, i + 4800), x.subarray(i, i + 4800));
+    const hum = events.filter((e) => e.type === 'hum-onset' || e.type === 'hum-offset' || e.type === 'hum-step');
+    return { hum, rows, present: rows.filter((r) => r.humStatus === PRESENT).length };
+  };
+
+  test('a hum that comes and goes is one episode: logged after 10 s, ended 30 s after it goes', () => {
+    // Present 0-30 s and 42-70 s (a 12 s gap), then gone until 120 s.
+    const on = (t) => ((t < 30 || (t >= 42 && t < 70)) ? -60 : -Infinity);
+    const { hum, present } = logged(addHum(speechLike(sr, 120, -30), sr, { levelDb: on }));
+    assert.ok(present > 40, `${present} s PRESENT`);
+    const episodes = hum.filter((e) => e.type !== 'hum-step'); // switching off reads as a step down first
+    assert.deepEqual(episodes.map((e) => e.type), ['hum-onset', 'hum-offset'], hum.map((e) => `${e.type} ${e.t}`).join(', '));
+    const [onset, offset] = episodes;
+    assert.ok(onset.t >= 5 && onset.t < 20, `onset dated ${onset.t} s (from when it began)`);
+    assert.ok(offset.t > 65 && offset.t < 76, `offset dated ${offset.t} s (when it went)`);
+    assert.equal(offset.duration, offset.t - onset.t);
+  });
+
+  test('hum below the alert level shows in the rows but not in the log', () => {
+    const { hum, present } = logged(addHum(speechLike(sr, 45, -30), sr, { levelDb: -60 }), { alertLevelDbfs: -50 });
+    assert.ok(present > 20, `${present} s PRESENT`);
+    assert.equal(hum.length, 0, hum.map((e) => e.type).join(', '));
+  });
+
+  test('while the status is held after a lock, the hum is reported as last locked', () => {
+    // A 50.75 Hz bass note 30 dB louder replaces the hum: the 2 s hold must not report it.
+    const sr2 = 48000;
+    const x = addHum(speechLike(sr2, 40, -30), sr2, { levelDb: (t) => (t < 30 ? -70 : -Infinity) });
+    const note = addHum(new Float32Array(x.length), sr2, { freq: 50.75, levelDb: (t) => (t >= 30 ? -40 : -Infinity), harmonics: { 1: 0 } });
+    for (let i = 0; i < x.length; i++) x[i] += note[i];
+    const results = [];
+    const d = new HumDetector(sr2, {}, { onResult: (r) => results.push(r) });
+    for (let i = 0; i < x.length; i += 128) d.process(x.subarray(i, i + 128), x.subarray(i, i + 128));
+    const held = results.filter((r) => r.present && r.t > 30);
+    assert.ok(held.every((r) => r.levelDb < -65 && Math.abs(r.fundamentalHz - 50) < 0.1), held.map((r) => `${r.t}: ${r.levelDb.toFixed(1)} dBFS ${r.fundamentalHz.toFixed(2)} Hz`).join('; '));
+  });
+});
+
 describe('hum performance', () => {
   test('well within the AudioWorklet budget (< 3% of one core)', () => {
     const sr = 48000;

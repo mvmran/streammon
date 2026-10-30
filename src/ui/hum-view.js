@@ -31,6 +31,15 @@ function pauseText(p, mainsHz) {
   return `${fmtDb(p.levelDb)} dBFS (${harmonicList(p.lines.map((k) => k * mainsHz))}), ${ago}`;
 }
 
+// NOT DETECTED only says no steady hum stands out through the programme: a faint one can
+// still show in the pauses, and the panel shouldn't say "nothing" next to that.
+const RECENT_PAUSE_SEC = 60;
+function notDetectedText(r) {
+  const p = r.pause;
+  if (p && p.levelDb !== null && p.ageSec <= RECENT_PAUSE_SEC) return `No steady hum through the programme; buzz in pauses at ${fmtDb(p.levelDb)} dBFS`;
+  return `Nothing at ${r.mainsHz} Hz; a hum at ${fmtDb(r.maskReferenceDb, 0)} dBFS would show`;
+}
+
 export class HumView {
   // getConfig() returns the alert configuration (its .hum section holds the hum settings).
   constructor(getConfig, doc = document) {
@@ -73,7 +82,7 @@ export class HumView {
         ? `Steady ${r.fundamentalHz.toFixed(2)} Hz tone, ${fmtDb(r.prominenceDb, 0)} dB above its surroundings`
         : r.status === 'MASKED'
           ? 'Programme too loud near the mains frequency to judge'
-          : `Nothing at ${r.mainsHz} Hz; a hum at ${fmtDb(r.maskReferenceDb, 0)} dBFS would show`;
+          : notDetectedText(r);
     this.renderStatus(r.status, detail);
     const present = r.status === 'PRESENT';
     setText(this.el.freq, present ? `${r.fundamentalHz.toFixed(2)} Hz` : '--');
