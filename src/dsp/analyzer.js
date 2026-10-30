@@ -61,6 +61,7 @@ export class StreamAnalyzer {
     this.crest.reset();
     this.hum.reset();
     this.humFrom = 0; // session time the hum detector last (re)started at
+    this.secPause = null; // buzz measured in a pause during the current second
     this.lastHum = null;
     this.humSeconds = { [HUM_PRESENT]: 0, [HUM_NOT_DETECTED]: 0, [HUM_MASKED]: 0 };
     this.humMaxDb = -Infinity;
@@ -219,10 +220,14 @@ export class StreamAnalyzer {
       humProminenceDb: h && h.present ? h.prominenceDb : null,
       humProjectedDb: h && h.present ? h.projectedDb : null,
       humSignature: h && h.present ? h.signature : null,
+      // Buzz in a pause this second (any status): dBFS of the harmonics summed, and which.
+      humPauseDb: this.secPause ? this.secPause.levelDb : null,
+      humPauseHz: this.secPause ? this.secPause.lines.map((k) => k * this.hum.opt.mainsFrequencyHz) : null,
     };
     this.s = { peak: 0, tp: 0 };
     // The file worker has no StereoStatus: there no status means ordinary stereo.
     this.trackStereo(row.stereoStatus || (this.stereoStatus ? null : STEREO), row.stereoDetail, t);
+    this.secPause = null;
     if (this.onSecond) this.onSecond(row);
   }
 
@@ -294,6 +299,8 @@ export class StreamAnalyzer {
     r.belowProgrammeDb = r.present && Number.isFinite(st) ? st - r.levelDb : null;
     r.projectedDb = r.present && Number.isFinite(programme) ? r.levelDb + (this.hum.opt.speechTargetLufs - programme) : null;
     r.speechTargetLufs = this.hum.opt.speechTargetLufs;
+    // Buzz measured in a pause during this second (the loudest, if two half-second hops did).
+    if (r.pause && r.pause.ageSec === 0 && r.pause.levelDb !== null && !(this.secPause && this.secPause.levelDb >= r.pause.levelDb)) this.secPause = r.pause;
     this.lastHum = r;
     if (this.onHum) this.onHum(r);
   }

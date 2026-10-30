@@ -21,6 +21,15 @@ function setText(node, text) {
   if (node && node.textContent !== text) node.textContent = text;
 }
 
+// Buzz in the latest pause (a quiet second): its level and the mains harmonics in it.
+function pauseText(p, mainsHz) {
+  if (!p) return 'no pause yet';
+  const ago = `${Math.round(p.ageSec)} s ago`;
+  if (p.levelDb === null) return `no buzz, ${ago}`;
+  const hz = p.lines.slice(0, 4).map((k) => k * mainsHz).join(', ') + (p.lines.length > 4 ? '…' : '');
+  return `${fmtDb(p.levelDb)} dBFS (${hz} Hz), ${ago}`;
+}
+
 export class HumView {
   // getConfig() returns the alert configuration (its .hum section holds the hum settings).
   constructor(getConfig, doc = document) {
@@ -75,7 +84,7 @@ export class HumView {
     else if (present && r.signature) sig = `${SIGNATURE[r.signature]}${r.signatureTentative ? ' (tentative)' : ''}`;
     else if (present) sig = 'harmonics below the noise floor';
     setText(this.el.signature, sig);
-    setText(this.el.quiet, r.quiet ? `${fmtDb(r.quiet.levelDb)} dBFS, ${Math.round(r.quiet.ageSec)} s ago` : 'no quiet passage yet');
+    setText(this.el.quiet, pauseText(r.pause, r.mainsHz));
     setText(this.el.below, present && r.belowProgrammeDb !== null ? `${r.belowProgrammeDb.toFixed(0)} dB below short-term loudness` : '--');
     setText(this.el.projectedLabel, `At ${r.speechTargetLufs} LUFS speech`);
     setText(this.el.projected, present && r.projectedDb !== null ? `hum would be ${fmtDb(r.projectedDb)} dBFS` : '--');

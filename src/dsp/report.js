@@ -30,6 +30,7 @@ export const CSV_COLUMNS = [
   ['hum_projected_dbfs', (r) => num(r.humProjectedDb)],
   // Newer columns go at the end, so older spreadsheets reading by position still work.
   ['stereo_detail', (r) => r.stereoDetail || ''],
+  ['hum_pause_dbfs', (r) => num(r.humPauseDb)],
 ];
 
 function num(x, digits = 1) {

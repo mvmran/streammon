@@ -289,3 +289,59 @@ describe('isolated hum playback (file mode)', () => {
     assert.ok(peak <= 0.5 + 1e-6, `peak ${peak}`);
   });
 });
+
+describe('hum in pauses', () => {
+  // Speech with a 2 s pause every 8 s (room noise about -75 dBFS in it), plus mains buzz
+  // or a stray tone.
+  const sr = 48000;
+  const alerts = (x, config = {}) => {
+    const m = new AlertMonitor(config);
+    const raised = [], rows = [];
+    new StreamAnalyzer(sr, { onSecond: (r) => { rows.push(r); raised.push(...m.update(r).raised); }, humOptions: { mainsFrequencyHz: 50 } }).process(x, x);
+    return { ids: raised.map((a) => a.id), raised, rows };
+  };
+  const speech = speechLike(sr, 40, -28).map((v, i) => ((i / sr) % 8 >= 6 ? v * 0.004 : v));
+
+  test('odd-harmonic buzz is caught in the pauses, with its level and frequencies', () => {
+    const x = addHum(speech, sr, { levelDb: -80, harmonics: { 1: 0, 3: 4, 5: 4, 7: 2 } });
+    const r = alerts(x);
+    assert.ok(r.ids.includes('humPause'), JSON.stringify(r.ids));
+    const msg = r.raised.find((a) => a.id === 'humPause').message;
+    assert.match(msg, /^buzz at -7\d\.\d dBFS when it goes quiet \(50, 150, 250, 350 Hz\)$/);
+    assert.ok(r.rows.some((row) => Number.isFinite(row.humPauseDb)), 'rows carry the pause level (CSV hum_pause_dbfs)');
+  });
+
+  test('no alert for clean speech, a single stray tone, or buzz below the level', () => {
+    assert.deepEqual(alerts(speech).ids, []);
+    assert.deepEqual(alerts(speech.map((v, i) => v + 3e-4 * Math.sin((2 * Math.PI * 150 * i) / sr))).ids, [], 'one line is a note, not buzz');
+    const quietBuzz = addHum(speech, sr, { levelDb: -90, harmonics: { 1: 0, 3: 4, 5: 4, 7: 2 } }); // about -81 dBFS summed
+    assert.ok(!alerts(quietBuzz).ids.includes('humPause'));
+    assert.ok(alerts(quietBuzz, { hum: { pauseAlertDbfs: -85 } }).ids.includes('humPause'), 'the level is adjustable');
+  });
+});
+
+fileDescribe('Reference_hum.wav', '(audible buzz in the pauses of a talk)', () => {
+  test('raises Hum in pauses, from 50 Hz and its odd harmonics; no PRESENT-hum alert', () => {
+    const { sampleRate, channels: [L, R] } = wav('Reference_hum.wav');
+    const m = new AlertMonitor();
+    const raised = [];
+    new StreamAnalyzer(sampleRate, { onSecond: (r) => raised.push(...m.update(r).raised) }).process(L, R);
+    const p = raised.find((a) => a.id === 'humPause');
+    assert.ok(p, JSON.stringify(raised));
+    assert.match(p.message, /buzz at -7\d\.\d dBFS .*\(50, 150, /);
+    assert.ok(!raised.some((a) => a.id === 'hum'));
+  });
+});
+
+fileDescribe('18Oct2026-31_min_mark.wav', '(service music)', () => {
+  test('no hum-in-pauses alert on the service and reference recordings without hum', () => {
+    for (const f of ['18Oct2026-30_min_mark.wav', '18Oct2026-31_min_mark.wav', '27Sep2026-92_min_mark.wav', 'Reference_recording.wav', 'Reference_quieter_recording.wav']) {
+      if (!existsSync(dir + f)) continue;
+      const { sampleRate, channels: [L, R] } = wav(f);
+      const m = new AlertMonitor();
+      const ids = [];
+      new StreamAnalyzer(sampleRate, { onSecond: (r) => ids.push(...m.update(r).raised.map((a) => a.id)) }).process(L, R);
+      assert.ok(!ids.includes('humPause'), f);
+    }
+  });
+});

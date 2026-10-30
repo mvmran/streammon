@@ -113,6 +113,8 @@ A status is held for 2 s.
 
 **Integration.** `StreamAnalyzer` adds audibility (`belowProgrammeDb`, and `projectedDb` at speechTargetLufs from integrated loudness) and puts the hum fields in each 1 s row. The hum settings live in the alert config's `hum` section (`humOptionsFrom`).
 
+**Hum in pauses** (`measurePause`). Whenever the whole last second was quiet (both 0.5 s segments below `quietRmsDbfs`, −50 dBFS), every harmonic is measured over that second (1 Hz Hann bins), peak within ±0.75 Hz, against the larger of its ±3.5 Hz controls. Harmonics at least `pauseLineDb` (10 dB) above count; with `pauseMinLines` (3) or more, their power sum is the pause level (result `pause`, row `humPauseDb` / `humPauseHz`, CSV `hum_pause_dbfs`). It works whatever the status, because hum can be audible in pauses while too quiet to be PRESENT through speech: in `Reference_hum.wav` the pause level is −72 dBFS (50–450 Hz, odd harmonics) while 50 Hz alone is −86 to −91. Checked on six service recordings, three classical and three studio tracks, at 50 and 60 Hz: quiet music passages gave at most two lines (notes on a mains multiple), real buzz five to seven. Alert `humPause` ("Hum in pauses"): `hum.pauseAlertDbfs` (−80) reached `hum.pauseCount` (2) times within `hum.pauseWindowSec` (60 s); it clears a minute after the last such pause.
+
 **Isolation.** `src/dsp/hum-isolate.js` is an STFT comb mask (bins under 0.4 Hz, ±0.75 Hz per harmonic) for the "Listen to isolated hum" button.
 
 ### Stereo by band (`src/dsp/stereobands.js`)

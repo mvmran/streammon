@@ -224,14 +224,26 @@ describe('report', () => {
   test('CSV header and row have the same number of columns, commas in text quoted', () => {
     const r = analyse(...(() => { const x = syntheticSignals(48000, 3).clean; return [x, x]; })(), 48000);
     // A minimal CSV field splitter: quoted fields may hold commas and doubled quotes.
-    const fields = (line) => [...line.trim().matchAll(/("(?:[^"]|"")*"|[^,]*)(,|$)/g)].slice(0, -1).map((m) => m[1].replace(/^"|"$/g, '').replace(/""/g, '"'));
+    const fields = (line) => {
+      const out = [];
+      let cur = '', quoted = false;
+      const s = line.replace(/\n$/, '');
+      for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (quoted && ch === '"' && s[i + 1] === '"') (cur += '"'), i++;
+        else if (ch === '"') quoted = !quoted;
+        else if (ch === ',' && !quoted) out.push(cur), (cur = '');
+        else cur += ch;
+      }
+      return [...out, cur];
+    };
     const h = csvHeader().trim().split(',');
     const row = { ...r.rows[1], wallClock: '2026-10-19T10:00:00', stereoStatus: 'PHASE PROBLEM', stereoDetail: 'Out of phase: 2k, 4k' };
     const line = fields(csvRow(row));
     assert.equal(line.length, h.length);
     assert.equal(h[0], 'wall_clock');
-    assert.equal(h.at(-1), 'stereo_detail', 'new columns are added at the end');
-    assert.equal(line.at(-1), 'Out of phase: 2k, 4k');
+    assert.deepEqual(h.slice(-2), ['stereo_detail', 'hum_pause_dbfs'], 'new columns are added at the end');
+    assert.equal(line[h.indexOf('stereo_detail')], 'Out of phase: 2k, 4k');
     assert.equal(line[h.indexOf('stereo_status')], 'PHASE PROBLEM');
   });
   test('JSON summary replaces non-finite numbers', () => {

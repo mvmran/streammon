@@ -7,7 +7,10 @@ export const DEFAULT_ALERTS = {
   shortTermHigh: { enabled: true, lufs: -10, seconds: 10 },
   integratedOff: { enabled: true, target: -14, tolerance: 4, minSeconds: 60 },
   // Mains hum: these also configure the detector (mains frequency, alert level, speech target).
-  hum: { enabled: true, mainsFrequencyHz: 50, alertLevelDbfs: -85, speechTargetLufs: -18, seconds: 5 },
+  // pause*: buzz measured in pauses (see HumDetector.measurePause) at pauseAlertDbfs or more,
+  // pauseCount times within pauseWindowSec. It is what people hear: the mains tone itself
+  // can be too quiet to be PRESENT through the speech, while its 150–450 Hz buzz carries.
+  hum: { enabled: true, mainsFrequencyHz: 50, alertLevelDbfs: -85, speechTargetLufs: -18, seconds: 5, pauseAlertDbfs: -80, pauseCount: 2, pauseWindowSec: 60 },
   // Stereo status (live sources): phase problem and imbalance alerts; a mono-feed alert is opt-in.
   stereo: { enabled: true, phaseSeconds: 5, unbalancedSeconds: 15, deadSeconds: 5, mono: false, monoSeconds: 10 },
   // Display only (kept with the alert settings, which are the app's settings store).
@@ -22,6 +25,7 @@ export const ALERT_LABELS = {
   shortTermHigh: 'Too loud',
   integratedOff: 'Integrated loudness off target',
   hum: 'Mains hum',
+  humPause: 'Hum in pauses',
   stereoPhase: 'Phase problem',
   stereoBalance: 'Stereo unbalanced',
   stereoMono: 'Mono feed',
@@ -51,6 +55,7 @@ export class AlertMonitor {
 
   reset() {
     this.run = { clipping: 0, shortTermHigh: 0, hum: 0, stereoPhase: 0, stereoBalance: 0, stereoMono: 0, stereoDead: 0 };
+    this.pauseHits = []; // { t, db, hz } of pauses with buzz at or above the pause alert level
     this.active = {}; // id -> { since, lastSeen, message }
   }
 
@@ -76,6 +81,13 @@ export class AlertMonitor {
     if (hm.enabled && this.run.hum >= hm.seconds) {
       const proj = Number.isFinite(row.humProjectedDb) ? `; at ${hm.speechTargetLufs} LUFS speech it would be ${fmt(row.humProjectedDb)} dBFS` : '';
       out.hum = `${fmt(row.humLevelDb)} dBFS at ${row.humFrequencyHz.toFixed(2)} Hz${proj}`;
+    }
+    if (Number.isFinite(row.humPauseDb) && row.humPauseDb >= hm.pauseAlertDbfs) this.pauseHits.push({ t: row.t, db: row.humPauseDb, hz: row.humPauseHz || [] });
+    this.pauseHits = this.pauseHits.filter((p) => row.t - p.t < hm.pauseWindowSec);
+    if (hm.enabled && this.pauseHits.length >= hm.pauseCount) {
+      const loudest = this.pauseHits.reduce((a, b) => (b.db > a.db ? b : a));
+      const hz = loudest.hz.slice(0, 5).join(', ') + (loudest.hz.length > 5 ? '…' : '');
+      out.humPause = `buzz at ${fmt(loudest.db)} dBFS when it goes quiet (${hz} Hz)`;
     }
     const sc = c.stereo;
     this.run.stereoPhase = row.stereoStatus === 'PHASE PROBLEM' ? this.run.stereoPhase + 1 : 0;
