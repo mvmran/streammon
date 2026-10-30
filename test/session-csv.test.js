@@ -7,6 +7,7 @@ import { StreamAnalyzer } from '../src/dsp/analyzer.js';
 import { csvHeader, csvRow } from '../src/dsp/report.js';
 import { parseCsv, readSessionCsv, sessionEvents, sessionSummary, rowAt, stepRows } from '../src/dsp/session-csv.js';
 import { AlertMonitor, DEFAULT_ALERTS } from '../src/dsp/alerts.js';
+import { PanGrid, panSummary, gridFromSummary, PAN_COLS, PAN_ROWS } from '../src/dsp/pan.js';
 import { statusDetail } from '../src/ui/meters.js';
 
 const sr = 48000;
@@ -193,5 +194,59 @@ describe('session CSV from file analysis and older versions', () => {
     const back = readSessionCsv([header, ...recs].map((r) => r.join(',')).join('\n'));
     assert.equal(back.startWall, null);
     assert.equal(back.rows[0].clock, null);
+  });
+});
+
+describe('pan map summary', () => {
+  // A spectrum (dB per FFT bin) with energy in a few bins only: -30 dB, else silent.
+  const spectrumWith = (bins, n = 4096) => {
+    const x = new Float32Array(n).fill(-200);
+    for (const b of bins) x[b] = -30;
+    return x;
+  };
+  const sr = 48000, binOf = (hz) => Math.round(hz / (sr / 2 / 4096));
+
+  test('a source on one side reads there, with no spread; a centred one at 0', () => {
+    const g = new PanGrid();
+    const on = spectrumWith([binOf(1000)]), off = spectrumWith([]);
+    g.update(on, off, sr, 0.1); // 1 kHz on the left only
+    const left = g.summary()[16]; // the 1 kHz band
+    assert.ok(left.pos < -0.99 && left.width < 1e-6, JSON.stringify(left));
+    g.reset();
+    g.update(on, on, sr, 0.1);
+    const mid = g.summary()[16];
+    assert.ok(Math.abs(mid.pos) < 1e-6 && mid.width < 1e-6, JSON.stringify(mid));
+    assert.equal(g.summary()[5].levelDb, -Infinity, 'an empty band has no level');
+  });
+
+  test('sources on both sides: centred on average, but wide', () => {
+    const g = new PanGrid();
+    g.update(spectrumWith([binOf(1000)]), spectrumWith([binOf(1050)]), sr, 0.1);
+    const b = g.summary()[16];
+    assert.ok(Math.abs(b.pos) < 0.05 && b.width > 0.9, JSON.stringify(b));
+  });
+
+  test('a grid redrawn from the summary keeps each band\'s level and position', () => {
+    const grid = new Float64Array(PAN_ROWS * PAN_COLS);
+    grid[16 * PAN_COLS + 30] = 1e-4; // 1 kHz, right of centre
+    grid[10 * PAN_COLS + 20] = 2e-5; // 250 Hz, centre
+    const sum = panSummary(grid);
+    const back = panSummary(gridFromSummary(sum));
+    for (const row of [10, 16]) {
+      assert.ok(Math.abs(back[row].levelDb - sum[row].levelDb) < 1e-6);
+      assert.ok(Math.abs(back[row].pos - sum[row].pos) < 0.01, `${back[row].pos} vs ${sum[row].pos}`);
+    }
+  });
+
+  test('it goes through the CSV and back', () => {
+    const grid = new Float64Array(PAN_ROWS * PAN_COLS);
+    grid[16 * PAN_COLS + 30] = 1e-4;
+    const pan = panSummary(grid);
+    const row = { t: 1, status: 'CLEAN', detectors: [], pan };
+    const back = readSessionCsv(csvHeader() + csvRow(row)).rows[0].pan;
+    assert.equal(back[16].pos, Number(pan[16].pos.toFixed(2)));
+    assert.equal(back[16].levelDb, Number(pan[16].levelDb.toFixed(1)));
+    assert.equal(back[5].levelDb, -Infinity);
+    assert.equal(readSessionCsv(csvHeader() + csvRow({ t: 1, status: 'CLEAN', detectors: [] })).rows[0].pan, null);
   });
 });

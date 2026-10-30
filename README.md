@@ -84,13 +84,14 @@ the meter cards, the hum panel and the last 5/15/60 minutes of the loudness and 
 charts. The **←** and **→** keys step one second (**Shift**: 10 s, **Ctrl**: 1 minute);
 hold one down to keep going.
 
-CSVs recorded live from 31 October 2026 also hold each second's **Stereo by band** readings
-and **⅓-octave spectrum** (about 20 KB a minute more: a 2-hour service is about 3.6 MB
-instead of 1.2 MB), so Stereo by band, the spectrum bars,
-the Octave balance and a coarse spectrogram (one band per colour, about the last 2 minutes)
-follow along too. A CSV holds one row of readings per second, so there is no audio, pan map
-or hum harmonics, and integrated-loudness resets are only in the JSON export. CSVs from
-analysed audio files have no Stereo by band or spectrum.
+CSVs recorded live from 31 October 2026 also hold each second's **Stereo by band** readings,
+**⅓-octave spectrum** and **pan map summary** (each ⅓-octave band's level, average position
+and spread), so Stereo by band, the spectrum bars, the Octave balance, a coarse spectrogram
+(one band per colour, about the last 2 minutes) and the pan map (each band drawn as a spread
+around its average position) follow along too. That makes about 60 KB a minute: a 2-hour
+service is about 7 MB instead of 1.2 MB. A CSV holds one row of readings per second, so there
+is no audio or hum harmonics, and integrated-loudness resets are only in the JSON export.
+CSVs from analysed audio files have none of the stereo, spectrum or pan columns.
 
 ## Chrome extension: what viewers hear on YouTube
 

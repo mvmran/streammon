@@ -133,6 +133,7 @@ function onRow(row) {
     row.t += state.playOffset;
   } else {
     row.spectrumDb = spectrumDb;
+    row.pan = panMap.summary();
     const wall = new Date(state.startWall + row.t * 1000);
     row.wallClock = fmtStamp(wall);
     row.clock = fmtClock(wall);
@@ -525,6 +526,7 @@ function showMoment(row) {
   meters.renderRow(row);
   humView.renderRow(row);
   spectrum.showSaved(rows, i); // CSVs from 2026-10-31 on: spectrum bars, octave balance, coarse spectrogram
+  panMap.showSaved(row.pan); // and the pan map, from its per-band summary
   redrawCharts();
   timeline.setCursor(row.t);
   setText(el.playPos, xFormat(row.t, row));

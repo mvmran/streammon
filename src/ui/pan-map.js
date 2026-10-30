@@ -1,23 +1,16 @@
 // Pan vs frequency map: where the sound sits left to right (across) at each 1/3-octave
-// band (up), brighter for more energy. Each FFT bin is placed by its share of energy
-// between the sides, (R² − L²) / (R² + L²), the same scale as the stereo-by-band balance
-// axis. Fed from separate left and right AnalyserNode spectra; display only.
+// band (up), brighter for more energy. The data is a PanGrid (src/dsp/pan.js), fed from
+// separate left and right AnalyserNode spectra; display only. A saved CSV holds only each
+// band's summary (level, average position, spread), drawn as a bell (showSaved).
 
 import { THIRD_OCTAVE_CENTRES } from '../dsp/bands.js';
 import { STEREO_RULES } from '../dsp/stereobands.js';
+import { PanGrid, PAN_COLS as COLS, PAN_ROWS as ROWS, PAN_F_LO as F_LO, PAN_F_HI as F_HI, rowDb, gridFromSummary } from '../dsp/pan.js';
 import { css, fmtDb, frameStep } from './format.js';
 
-const COLS = 41; // pan cells, odd so the centre has its own column
-const ROWS = THIRD_OCTAVE_CENTRES.length;
 const EDGE = Math.pow(2, 1 / 6);
-const F_LO = THIRD_OCTAVE_CENTRES[0] / EDGE;
-const F_HI = THIRD_OCTAVE_CENTRES[ROWS - 1] * EDGE;
 const RANGE_DB = 45; // shown below the loudest cell (less hides diffuse orchestral bass)
-const SMOOTH_S = 1; // time constant of the energy average
 const BAL_MARKS = [3, 6, 10]; // 20 dB would fall inside the edge column
-// Summed AnalyserNode bin powers (Blackman window, 1/N scaling, magnitude smoothing 0.5)
-// read about 9 dB below the band's true level: measured with noise at 100 Hz, 1 kHz, 8 kHz.
-const BIN_SUM_TO_DBFS = 9;
 // Rows (1/3 octaves) quieter than this are mostly the source's own noise, e.g. two mic
 // capsules' independent hiss, which would spread across the map as a fake wide image.
 // Stereo by band's -70 dBFS per octave is about -75 dBFS per 1/3 octave.
@@ -36,8 +29,6 @@ const posDb = (u) => 10 * Math.log10((1 + u) / Math.max(1e-6, 1 - u));
 // The edge columns collect everything at least this much louder on one side (19 dB).
 const EDGE_DB = Math.round(-posDb(-1 + 1 / (COLS - 1)));
 const fmtBalance = (db) => (Math.abs(db) < 0.25 ? 'centre' : `${db < 0 ? 'L' : 'R'} ${Math.abs(db).toFixed(1)} dB`);
-// Band level (dBFS, per channel) of a row from its summed cell energies.
-const rowDb = (sum) => (sum > 0 ? 10 * Math.log10(sum / 2) + BIN_SUM_TO_DBFS : -Infinity);
 
 function buildLut() {
   const rgb = RAMP.map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
@@ -57,9 +48,10 @@ export class PanMapView {
     this.tooltip = document.getElementById('tooltip');
     this.cssHeight = Number(canvas.getAttribute('height')) || 260;
     this.lut = buildLut();
-    this.grid = null; // smoothed energy per cell (row-major, row 0 = lowest band)
+    this.pan = new PanGrid();
+    this.grid = null; // what is drawn: the live grid, or one rebuilt from a CSV's summary
+    this.saved = false;
     this.lastT = null; // audio-clock time of the latest frame (s)
-    this.acc = new Float64Array(ROWS * COLS);
     this.img = document.createElement('canvas');
     this.img.width = COLS;
     this.img.height = ROWS;
@@ -95,9 +87,28 @@ export class PanMapView {
   }
 
   clear() {
+    this.pan.reset();
     this.grid = null;
+    this.saved = false;
     this.lastT = null;
     this.draw();
+  }
+
+  // Each band's level, average position and spread now, for the CSV row (null before data).
+  summary() {
+    return this.saved ? null : this.pan.summary();
+  }
+
+  // A saved CSV's second: its per-band summary (row.pan), each band drawn as a bell around
+  // its average position, as wide as its spread.
+  showSaved(summary) {
+    if (!summary) {
+      if (this.grid) this.clear();
+      return;
+    }
+    this.saved = true;
+    this.grid = gridFromSummary(summary);
+    this.dirty = true;
   }
 
   // left, right: dB per FFT bin (AnalyserNode.getFloatFrequencyData) for each channel;
@@ -105,26 +116,9 @@ export class PanMapView {
   update(left, right, sampleRate, t) {
     const dt = frameStep(this.lastT, t);
     this.lastT = t;
-    const acc = this.acc;
-    acc.fill(0);
-    const binHz = sampleRate / 2 / left.length;
-    const logSpan = Math.log(F_HI / F_LO);
-    for (let b = 1; b < left.length; b++) {
-      const f = b * binHz;
-      if (f < F_LO) continue;
-      if (f >= F_HI) break;
-      const l = Math.pow(10, left[b] / 10), r = Math.pow(10, right[b] / 10);
-      const e = l + r;
-      if (!(e > 1e-12)) continue;
-      const row = Math.min(ROWS - 1, Math.floor((Math.log(f / F_LO) / logSpan) * ROWS));
-      const col = Math.round((((r - l) / e + 1) / 2) * (COLS - 1));
-      acc[row * COLS + col] += e;
-    }
-    if (!this.grid) this.grid = Float64Array.from(acc);
-    else {
-      const a = 1 - Math.exp(-dt / SMOOTH_S);
-      for (let i = 0; i < acc.length; i++) this.grid[i] += (acc[i] - this.grid[i]) * a;
-    }
+    this.pan.update(left, right, sampleRate, dt);
+    this.saved = false;
+    this.grid = this.pan.grid;
     this.dirty = true;
   }
 
@@ -261,6 +255,7 @@ export class PanMapView {
       r('Cell', v > 0 ? `${fmtDb(10 * Math.log10(v))} dB` : '--'),
       r('Band level', Number.isFinite(band) ? `${fmtDb(band)} dBFS` : '--'),
       band < ROW_FLOOR_DB ? `<div class="k">Too quiet to place: mostly noise</div>` : '',
+      this.saved ? `<div class="k small">from the CSV: the band's average position and spread</div>` : '',
     ].join('');
     tip.hidden = false;
     const tw = tip.offsetWidth;

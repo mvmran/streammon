@@ -92,9 +92,10 @@ export function readSessionCsv(text) {
       if (c.set) c.set(row, c.parse(rec[i]));
       else row[c.field] = c.parse(rec[i]);
     });
-    // A second without band or spectrum readings (file analysis, or before they existed).
+    // A second without band, spectrum or pan readings (file analysis, or before they existed).
     if (row.bands && row.bands.every((b) => b.levelDb === null)) row.bands = null;
     if (row.spectrumDb && row.spectrumDb.every((v) => v === null)) row.spectrumDb = null;
+    if (row.pan && row.pan.every((b) => b.levelDb === null)) row.pan = null;
     if (!Number.isFinite(row.t) || !row.status) continue;
     row.detectors ??= [];
     for (const k of ['dwellRate', 'pileRatio', 'pinned']) row[k] ??= 0;

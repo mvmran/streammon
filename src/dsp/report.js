@@ -69,7 +69,27 @@ export const CSV_COLUMNS = [
     parse: parseNum,
     set: (r, v) => ((r.spectrumDb ??= new Array(THIRD_OCTAVE_LABELS.length).fill(null))[i] = v),
   })),
+  // The pan map's summary per 1/3-octave band: level, average position (−1 left … +1
+  // right) and spread around it (src/dsp/pan.js).
+  ...THIRD_OCTAVE_LABELS.flatMap((name, i) => [
+    pan(`pan_${name}_dbfs`, i, 'levelDb', 1),
+    pan(`pan_${name}_pos`, i, 'pos', 2),
+    pan(`pan_${name}_width`, i, 'width', 2),
+  ]),
 ];
+
+function pan(name, i, key, digits) {
+  return {
+    name,
+    field: 'pan',
+    get: (r) => (r.pan && r.pan[i] ? num(r.pan[i][key], digits) : ''),
+    parse: parseNum,
+    set: (r, v) => {
+      r.pan ??= THIRD_OCTAVE_LABELS.map(() => ({ levelDb: null, pos: null, width: null }));
+      r.pan[i][key] = v;
+    },
+  };
+}
 
 function band(name, i, key, digits) {
   return {
