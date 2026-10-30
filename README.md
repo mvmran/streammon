@@ -188,7 +188,7 @@ Hum is most audible in speech and pauses, because music covers it.
   as a hint, not a verdict.
 - **Event log:** onset, offset, level steps of 6 dB or more, and changes to the mains
   setting.
-- **Alert:** hum PRESENT and above −75 dBFS for 5 s raises an alert (adjustable).
+- **Alert:** hum PRESENT and above −85 dBFS for 5 s raises an alert (adjustable).
 
 In **File** mode, **Listen to isolated hum** plays 20 s from the current position with
 everything except narrow slices around the hum harmonics removed, raised by the chosen gain.

@@ -7,11 +7,11 @@ export const DEFAULT_ALERTS = {
   shortTermHigh: { enabled: true, lufs: -10, seconds: 10 },
   integratedOff: { enabled: true, target: -14, tolerance: 4, minSeconds: 60 },
   // Mains hum: these also configure the detector (mains frequency, alert level, speech target).
-  hum: { enabled: true, mainsFrequencyHz: 50, alertLevelDbfs: -75, speechTargetLufs: -18, seconds: 5 },
+  hum: { enabled: true, mainsFrequencyHz: 50, alertLevelDbfs: -85, speechTargetLufs: -18, seconds: 5 },
   // Stereo status (live sources): phase problem and imbalance alerts; a mono-feed alert is opt-in.
   stereo: { enabled: true, phaseSeconds: 5, unbalancedSeconds: 15, deadSeconds: 5, mono: false, monoSeconds: 10 },
   // Display only (kept with the alert settings, which are the app's settings store).
-  display: { spectrogramFloorDb: -100 },
+  display: { spectrogramFloorDb: -85 },
   clearAfterSec: 5, // an alert stays up until its condition has been absent this long
   sound: false, // off by default: this runs during services
 };

@@ -4,10 +4,26 @@ import { DEFAULT_ALERTS, mergeAlertConfig } from '../dsp/alerts.js';
 
 const KEY = 'streammon.alerts.v1';
 
+// Saved settings hold every value, so a changed default wouldn't reach anyone who has saved
+// once. Settings saved before version 2 that still hold an old default get the new one;
+// a value someone chose differently is kept.
+const SETTINGS_VERSION = 2;
+const OLD_DEFAULTS = [
+  ['hum', 'alertLevelDbfs', -75], // -85 since version 2: quieter hum is audible in pauses
+  ['display', 'spectrogramFloorDb', -100], // -85 since version 2
+];
+
+export function migrateSaved(saved) {
+  if (!saved || typeof saved !== 'object' || saved.version >= SETTINGS_VERSION) return saved;
+  const out = structuredClone(saved);
+  for (const [section, key, old] of OLD_DEFAULTS) if (out[section] && out[section][key] === old) delete out[section][key];
+  return out;
+}
+
 export function loadAlertConfig() {
   try {
     const raw = localStorage.getItem(KEY);
-    return mergeAlertConfig(DEFAULT_ALERTS, raw ? JSON.parse(raw) : {});
+    return mergeAlertConfig(DEFAULT_ALERTS, raw ? migrateSaved(JSON.parse(raw)) : {});
   } catch {
     return mergeAlertConfig(DEFAULT_ALERTS);
   }
@@ -15,7 +31,7 @@ export function loadAlertConfig() {
 
 function saveAlertConfig(cfg) {
   try {
-    localStorage.setItem(KEY, JSON.stringify(cfg));
+    localStorage.setItem(KEY, JSON.stringify({ ...cfg, version: SETTINGS_VERSION }));
   } catch {
     // Storage unavailable (private window): settings last for this page only.
   }

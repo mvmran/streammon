@@ -95,7 +95,7 @@ fileDescribe('Reference_speech_recording.wav', 'audibility via the analyzer', ()
     near(last.humLevelDb, -70, 1, 'row level');
     assert.equal(last.humMainsHz, 50);
   });
-  test('hum alert is raised (level above -75 dBFS for 5 s)', () => {
+  test('hum alert is raised (level above the alert level for 5 s)', () => {
     const m = new AlertMonitor();
     const raised = rows.flatMap((x) => m.update(x).raised.map((a) => a.id));
     assert.ok(raised.includes('hum'));
@@ -103,10 +103,15 @@ fileDescribe('Reference_speech_recording.wav', 'audibility via the analyzer', ()
 });
 
 fileDescribe('Reference_speech_recording.wav', '(mains 60 Hz)', () => {
-  test('NOT DETECTED', () => {
+  // The real 59.9 Hz tone at -86 dBFS must never read as 60 Hz hum. Whether the rest reads
+  // NOT DETECTED or MASKED depends on the alert level: under speech, a hum at -85 dBFS
+  // (the default) would be hidden, so it is mostly MASKED.
+  test('never PRESENT', () => {
     const { sampleRate, channels: [L, R] } = wav('Reference_speech_recording.wav');
     const r = runHum(L, R, sampleRate, { mainsFrequencyHz: 60 });
-    assert.ok(r.settled.every((x) => x.status === NOT_DETECTED), statuses(r.settled));
+    assert.ok(r.settled.every((x) => x.status === NOT_DETECTED || x.status === MASKED), statuses(r.settled));
+    const loud = runHum(L, R, sampleRate, { mainsFrequencyHz: 60, alertLevelDbfs: -75 });
+    assert.ok(loud.settled.every((x) => x.status === NOT_DETECTED), `with a -75 dBFS alert level: ${statuses(loud.settled)}`);
   });
 });
 

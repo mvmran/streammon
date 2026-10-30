@@ -34,7 +34,7 @@ export const DEFAULT_HUM_OPTIONS = {
   maxPhaseResidualRad: 0.5, // phase coherence between consecutive windows
   maxLevelStdDb: 2, // steadiness, apart from logged level steps
   quietRmsDbfs: -50, // programme below this counts as a quiet passage
-  alertLevelDbfs: -75,
+  alertLevelDbfs: -85,
   speechTargetLufs: -18,
   levelStepEventDb: 6,
   harmonicAverageSec: 30, // time constant of the phase-locked harmonic average

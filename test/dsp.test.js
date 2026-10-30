@@ -7,7 +7,8 @@ import { kWeightingCoefficients } from '../src/dsp/kweighting.js';
 import { LoudnessMeter } from '../src/dsp/loudness.js';
 import { TruePeakChannel } from '../src/dsp/truepeak.js';
 import { stereoFromSums } from '../src/dsp/stereo.js';
-import { AlertMonitor } from '../src/dsp/alerts.js';
+import { AlertMonitor, DEFAULT_ALERTS, mergeAlertConfig } from '../src/dsp/alerts.js';
+import { migrateSaved } from '../src/ui/settings.js';
 import { csvHeader, csvRow, summaryJson } from '../src/dsp/report.js';
 import { octaveBalance, thirdOctaveLevels, THIRD_OCTAVE_CENTRES } from '../src/dsp/bands.js';
 import { fft } from '../src/dsp/fft.js';
@@ -203,6 +204,20 @@ describe('alerts', () => {
   });
 
   test('sound is off by default', () => assert.equal(new AlertMonitor().config.sound, false));
+
+  test('saved settings holding the old hum and floor defaults get the new ones; own choices stay', () => {
+    assert.equal(DEFAULT_ALERTS.hum.alertLevelDbfs, -85);
+    assert.equal(DEFAULT_ALERTS.display.spectrogramFloorDb, -85);
+    const old = { hum: { alertLevelDbfs: -75, mainsFrequencyHz: 50 }, display: { spectrogramFloorDb: -100 } };
+    const m = mergeAlertConfig(DEFAULT_ALERTS, migrateSaved(old));
+    assert.equal(m.hum.alertLevelDbfs, -85);
+    assert.equal(m.display.spectrogramFloorDb, -85);
+    assert.equal(old.hum.alertLevelDbfs, -75, 'the saved object itself is not changed');
+    const own = mergeAlertConfig(DEFAULT_ALERTS, migrateSaved({ hum: { alertLevelDbfs: -70 }, display: { spectrogramFloorDb: -80 } }));
+    assert.deepEqual([own.hum.alertLevelDbfs, own.display.spectrogramFloorDb], [-70, -80]);
+    const chosenAfter = migrateSaved({ version: 2, hum: { alertLevelDbfs: -75 } });
+    assert.equal(chosenAfter.hum.alertLevelDbfs, -75, 'once saved as version 2, -75 is a choice');
+  });
 });
 
 describe('report', () => {

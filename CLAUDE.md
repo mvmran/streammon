@@ -107,7 +107,9 @@ A status is held for 2 s.
 **Calibration** (`test/hum.test.js`):
 - Real hum prominence is 29–39 dB.
 - Bass notes reach at most 12 dB.
-- A real 59.9 Hz tone at −86 dBFS in `Reference_speech_recording.wav` reaches 10–20 dB. It must stay NOT DETECTED at the 60 Hz setting, which is why the defaults are minProminenceDb 18 and alertLevelDbfs −75.
+- A real 59.9 Hz tone at −86 dBFS in `Reference_speech_recording.wav` reaches 10–20 dB. It must never read PRESENT at the 60 Hz setting, which is why minProminenceDb is 18.
+- The alert level (default −85 dBFS since settings version 2; it was −75) also decides MASKED vs NOT DETECTED: MASKED means a hum at the alert level would be hidden by the programme, so at −85 speech mostly reads MASKED. `migrateSaved` in `settings.js` moves saved settings still holding an old default (−75, or a −100 spectrogram floor) to the new one.
+- `Reference_hum.wav` (2026-10-30): a speaker session with audible buzz in the pauses. 50 Hz at about −90 dBFS (PRESENT only 31–36 s, about −86 dBFS), but 150/350 Hz at about −81 dBFS; the pause background (−73 dBFS) is mostly that buzz. Also a steady 30.000 Hz tone at −92 dBFS, not mains-locked (probably 30 fps video gear), which the hum detector doesn't look for.
 
 **Integration.** `StreamAnalyzer` adds audibility (`belowProgrammeDb`, and `projectedDb` at speechTargetLufs from integrated loudness) and puts the hum fields in each 1 s row. The hum settings live in the alert config's `hum` section (`humOptionsFrom`).
 
@@ -152,7 +154,7 @@ Each octave band (31 Hz – 16 kHz) is filtered by two cascaded RBJ band-pass bi
   - The spectrogram keeps one byte per pixel (the colour index) plus each row's audio-clock frame time, which is what its hover reads.
   - It scrolls one row per 100 ms analyzer frame, timed by the audio clock, so the history length is set by the canvas height. Data goes in with `update()`/`updateData()` as frames arrive (also while the page is hidden, when Chrome stops animation frames); drawing (and the Octave balance DOM) happens in `render()` on the UI tick. The pan map works the same way. The averages' time steps come from the frame times (`frameStep` in `format.js`), and data without a frame time is dropped. Rows added per UI tick left gaps behind other windows and made the time labels jitter (ticks land 100 or 117 ms apart).
   - **Below 200 Hz (`FINE_MAX_HZ`) the bars, the octave balance and the spectrogram use a second, 32768-point analyser** (`engine.analyserFine`, read with `readFine`; in the extension the `spectrum` message carries `fine: { db, binHz }`, a few hundred bins). The 8192-point one has 5.9 Hz bins at 48 kHz and spreads a tone over about ±18 Hz, so a 50 Hz hum was drawn as a 41–65 Hz band and a 60 Hz note lit the 50 Hz bar only 9 dB down (now about 75 dB). `bandLevels(…, fine)` takes bands ending below the fine data's last bin from it. Spectrogram columns from it get +6 dB (`fineGainDb`, the bin-width ratio) so broadband sound has no step at 200 Hz; that part looks smoother over time (0.7 s window).
-  - Its colour scale runs from a floor (default −100 dB, `display.spectrogramFloorDb` in the settings, `setSpectrogramFloor`) to −10 dB; changing the floor re-maps the stored history. The spectrum bars' axis stays at −100.
+  - Its colour scale runs from a floor (default −85 dB, was −100, `display.spectrogramFloorDb` in the settings, `setSpectrogramFloor`) to −10 dB; changing the floor re-maps the stored history. The spectrum bars' axis stays at −100.
   - The 5 s average line carries the octave balance readings (dB vs 500 Hz) at each octave centre, the same values the Octave balance panel shows (`balanceDb`).
 - **Column heights are balanced by hand.** In `index.html` and `extension/dashboard.html`:
   - the `#sgram` height attribute is chosen so the spectrum panel ends level with the right-hand column (Stereo by band + Pan map);
