@@ -3,6 +3,7 @@
 // element is optional and looked up by id.
 
 import { css, fmtDb } from './format.js';
+import { harmonicList } from '../dsp/hum.js';
 
 const STATUS_ICON = { PRESENT: '⚠', 'NOT DETECTED': '✓', MASKED: '…', IDLE: '' };
 const SIGNATURE = {
@@ -21,13 +22,13 @@ function setText(node, text) {
   if (node && node.textContent !== text) node.textContent = text;
 }
 
-// Buzz in the latest pause (a quiet second): its level and the mains harmonics in it.
+// Hum in the latest pause (a quiet second): its level and the mains harmonics in it. With
+// fewer than three harmonics it is a plain hum, not buzz (and doesn't count for the alert).
 function pauseText(p, mainsHz) {
   if (!p) return 'no pause yet';
   const ago = `${Math.round(p.ageSec)} s ago`;
-  if (p.levelDb === null) return `no buzz, ${ago}`;
-  const hz = p.lines.slice(0, 4).map((k) => k * mainsHz).join(', ') + (p.lines.length > 4 ? '…' : '');
-  return `${fmtDb(p.levelDb)} dBFS (${hz} Hz), ${ago}`;
+  if (p.levelDb === null) return `none, ${ago}`;
+  return `${fmtDb(p.levelDb)} dBFS (${harmonicList(p.lines.map((k) => k * mainsHz))}), ${ago}`;
 }
 
 export class HumView {
@@ -66,14 +67,13 @@ export class HumView {
 
   render(r) {
     this.result = r;
-    const cfg = this.getConfig().hum;
     this.renderMains();
     const detail =
       r.status === 'PRESENT'
         ? `Steady ${r.fundamentalHz.toFixed(2)} Hz tone, ${fmtDb(r.prominenceDb, 0)} dB above its surroundings`
         : r.status === 'MASKED'
           ? 'Programme too loud near the mains frequency to judge'
-          : `Nothing at ${r.mainsHz} Hz; a hum at ${fmtDb(cfg.alertLevelDbfs, 0)} dBFS would show`;
+          : `Nothing at ${r.mainsHz} Hz; a hum at ${fmtDb(r.maskReferenceDb, 0)} dBFS would show`;
     this.renderStatus(r.status, detail);
     const present = r.status === 'PRESENT';
     setText(this.el.freq, present ? `${r.fundamentalHz.toFixed(2)} Hz` : '--');

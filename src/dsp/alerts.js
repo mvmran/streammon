@@ -1,6 +1,8 @@
 // Alert rules evaluated on the analyzer's 1-second rows. Pure logic so the thresholds
 // can be tested without a browser.
 
+import { harmonicList } from './hum.js';
+
 export const DEFAULT_ALERTS = {
   clipping: { enabled: true, seconds: 1 },
   truePeak: { enabled: true, dbtp: -1 },
@@ -8,8 +10,10 @@ export const DEFAULT_ALERTS = {
   integratedOff: { enabled: true, target: -14, tolerance: 4, minSeconds: 60 },
   // Mains hum: these also configure the detector (mains frequency, alert level, speech target).
   // pause*: buzz measured in pauses (see HumDetector.measurePause) at pauseAlertDbfs or more,
-  // pauseCount times within pauseWindowSec. It is what people hear: the mains tone itself
-  // can be too quiet to be PRESENT through the speech, while its 150–450 Hz buzz carries.
+  // in pauseCount half-second readings within pauseWindowSec: one pause of about 2 s, or
+  // shorter ones adding up. It clears pauseWindowSec after the last such reading. It is what
+  // people hear: the mains tone itself can be too quiet to be PRESENT through the speech,
+  // while its 150–450 Hz buzz carries.
   hum: { enabled: true, mainsFrequencyHz: 50, alertLevelDbfs: -85, speechTargetLufs: -18, seconds: 5, pauseAlertDbfs: -80, pauseCount: 2, pauseWindowSec: 60 },
   // Stereo status (live sources): phase problem and imbalance alerts; a mono-feed alert is opt-in.
   stereo: { enabled: true, phaseSeconds: 5, unbalancedSeconds: 15, deadSeconds: 5, mono: false, monoSeconds: 10 },
@@ -55,7 +59,9 @@ export class AlertMonitor {
 
   reset() {
     this.run = { clipping: 0, shortTermHigh: 0, hum: 0, stereoPhase: 0, stereoBalance: 0, stereoMono: 0, stereoDead: 0 };
-    this.pauseHits = []; // { t, db, hz } of pauses with buzz at or above the pause alert level
+    this.pauseHits = []; // { t, db, hz, n } of seconds with buzz at or above the pause alert level
+    this.pauseUntil = -Infinity; // the hum-in-pauses alert holds until then
+    this.pauseMessage = '';
     this.active = {}; // id -> { since, lastSeen, message }
   }
 
@@ -82,13 +88,17 @@ export class AlertMonitor {
       const proj = Number.isFinite(row.humProjectedDb) ? `; at ${hm.speechTargetLufs} LUFS speech it would be ${fmt(row.humProjectedDb)} dBFS` : '';
       out.hum = `${fmt(row.humLevelDb)} dBFS at ${row.humFrequencyHz.toFixed(2)} Hz${proj}`;
     }
-    if (Number.isFinite(row.humPauseDb) && row.humPauseDb >= hm.pauseAlertDbfs) this.pauseHits.push({ t: row.t, db: row.humPauseDb, hz: row.humPauseHz || [] });
+    const hit = Number.isFinite(row.humPauseDb) && row.humPauseDb >= hm.pauseAlertDbfs;
+    if (hit) this.pauseHits.push({ t: row.t, db: row.humPauseDb, hz: row.humPauseHz || [], n: row.humPauseReadings || 1 });
     this.pauseHits = this.pauseHits.filter((p) => row.t - p.t < hm.pauseWindowSec);
-    if (hm.enabled && this.pauseHits.length >= hm.pauseCount) {
+    const readings = this.pauseHits.reduce((n, p) => n + p.n, 0);
+    // Raised by enough readings; then every further one keeps it up a full window longer.
+    if (hit && (readings >= hm.pauseCount || row.t < this.pauseUntil)) {
+      this.pauseUntil = row.t + hm.pauseWindowSec;
       const loudest = this.pauseHits.reduce((a, b) => (b.db > a.db ? b : a));
-      const hz = loudest.hz.slice(0, 5).join(', ') + (loudest.hz.length > 5 ? '…' : '');
-      out.humPause = `buzz at ${fmt(loudest.db)} dBFS when it goes quiet (${hz} Hz)`;
+      this.pauseMessage = `buzz at ${fmt(loudest.db)} dBFS when it goes quiet (${harmonicList(loudest.hz)})`;
     }
+    if (hm.enabled && row.t < this.pauseUntil) out.humPause = this.pauseMessage;
     const sc = c.stereo;
     this.run.stereoPhase = row.stereoStatus === 'PHASE PROBLEM' ? this.run.stereoPhase + 1 : 0;
     this.run.stereoBalance = row.stereoStatus === 'UNBALANCED' ? this.run.stereoBalance + 1 : 0;

@@ -229,7 +229,7 @@ async function main() {
     await page.click('dialog button[value="save"]');
     await page.waitForFunction(() => localStorage.getItem('streammon.alerts.v1'), null, { timeout: 5000 });
     const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('streammon.alerts.v1')));
-    check(saved.truePeak.dbtp === -2 && saved.sound === false, 'alert threshold saved, sound still off');
+    check(saved.truePeak.dbtp === -2 && saved.sound !== true && !('hum' in saved) && saved.version === 2, `alert threshold saved, sound still off, untouched defaults not stored (${JSON.stringify(saved)})`);
     await page.click('#settings-btn');
     await page.fill('input[name="truePeak.dbtp"]', '-5');
     await page.keyboard.press('Escape');

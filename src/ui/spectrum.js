@@ -416,9 +416,9 @@ export class SpectrumView {
       }
       // Where the last fine column ends, in fine bins (colBins[fineCols] is a main bin).
       sg.fineEnd = sg.fineCols ? Math.max(sg.colBins[sg.fineCols - 1] + 1, Math.round(axisFreq(sg.fineCols / sg.cols) / fineHz)) : 0;
-      // Its bins are narrower, so broadband sound reads lower per bin (6 dB for 4x the FFT):
-      // add that back so the picture has no step at FINE_MAX_HZ. (The bars sum whole bands.)
-      sg.fineGainDb = fine ? 10 * Math.log10(binHz / fineHz) : 0;
+      // Its bins are narrower, so broadband sound reads about 6 dB lower per bin there and
+      // looks a little darker below FINE_MAX_HZ. Not compensated: a tone (hum, a bass note)
+      // reads the same in both, and naming tones is what the bottom of the picture is for.
       sg.sampleRate = sampleRate;
       sg.nb = nb;
       sg.fineHz = fineHz;
@@ -433,7 +433,6 @@ export class SpectrumView {
       const b0 = sg.colBins[x], b1 = Math.max(b0, (x + 1 === sg.fineCols ? sg.fineEnd : sg.colBins[x + 1]) - 1);
       let v = -Infinity;
       for (let b = b0; b <= b1 && b < src.length; b++) if (src[b] > v) v = src[b];
-      if (x < sg.fineCols) v += sg.fineGainDb;
       const k = Math.max(0, Math.min(255, Math.round(((v - this.sgFloor) / (DB_MAX - this.sgFloor)) * 255)));
       sg.vals[base + x] = k;
       px[x * 4] = this.lut[k * 3];

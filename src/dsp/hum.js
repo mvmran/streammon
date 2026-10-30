@@ -18,6 +18,11 @@ export const PRESENT = 'PRESENT';
 export const NOT_DETECTED = 'NOT DETECTED';
 export const MASKED = 'MASKED';
 
+// Mains harmonic frequencies as a short list for messages, e.g. "50, 150, 250, 350, 450… Hz".
+export function harmonicList(hz, max = 5) {
+  return `${hz.slice(0, max).join(', ')}${hz.length > max ? '…' : ''} Hz`;
+}
+
 export const DEFAULT_HUM_OPTIONS = {
   mainsFrequencyHz: 50, // 50 or 60
   harmonics: 10,
@@ -33,9 +38,14 @@ export const DEFAULT_HUM_OPTIONS = {
   persistenceSec: 5, // locked for at least this long out of the last historySec
   maxPhaseResidualRad: 0.5, // phase coherence between consecutive windows
   maxLevelStdDb: 2, // steadiness, apart from logged level steps
-  quietRmsDbfs: -50, // programme below this counts as a quiet passage
-  pauseLineDb: 10, // in a pause, a harmonic counts when it beats its ±controlOffsetHz neighbours by this
-  pauseMinLines: 3, // …and buzz needs this many: one or two "lines" in a quiet music passage are notes
+  quietRmsDbfs: -50, // programme below this counts as a quiet passage (a pause)
+  pauseControlHz: 2.5, // in a pause (1 Hz bins), each harmonic against its neighbours this far away
+  pauseLineDb: 10, // a harmonic counts as a line when it beats those neighbours by this
+  pauseMinLines: 3, // buzz needs this many: one or two "lines" in a quiet music passage are notes
+  pauseDriftHz: 0.15, // mains frequency allowance when the hum isn't PRESENT (so not measured)
+  // MASKED vs NOT DETECTED: could a hum this loud have stood out from the programme? A fixed
+  // reference, not the alert level: lowering the alert level must not turn speech into MASKED.
+  maskReferenceDbfs: -75,
   alertLevelDbfs: -85,
   speechTargetLufs: -18,
   levelStepEventDb: 6,
@@ -168,10 +178,13 @@ export class HumDetector {
     this.N = this.S * this.H;
     this.delta = this.fsd / this.N; // grid spacing (Hz) = detect resolution
     this.dispStep = this.S / this.Sd; // display-window Hann neighbour offset in grid steps
-    this.segStep = this.S; // single-segment Hann neighbour offset (quiet measurement)
     this.ctrl = Math.round(o.controlOffsetHz / this.delta);
     this.bandBins = Math.round(o.bandHalfWidthHz / this.delta);
-    this.M = Math.max(this.ctrl + 1, this.segStep, this.bandBins) + 1; // grid half-width
+    // Pause measurement: the 10th harmonic of mains 0.15 Hz off is 1.5 Hz (6 steps) away, plus
+    // one step of search, its controls and their Hann neighbours: all on the grid.
+    this.pauseCtrl = Math.round(o.pauseControlHz / this.delta);
+    this.pauseReach = Math.ceil((10 * o.pauseDriftHz) / this.delta) + 1;
+    this.M = Math.max(this.ctrl + 1, this.bandBins, this.pauseReach + this.pauseCtrl + this.dispStep) + 1; // grid half-width
     const G = 2 * this.M + 1;
     this.G = G;
     const K = o.harmonics;
@@ -241,8 +254,7 @@ export class HumDetector {
     this.avgSince = null; // when the harmonic averages (re)started, while present
     this.lastPresentT = -Infinity;
     this.lastPassT = -Infinity;
-    this.quiet = null; // { levelDb, t }
-    this.pause = null; // { levelDb, lines, t }: hum measured in the latest quiet second
+    this.pause = null; // { levelDb, lines, buzz, t }: hum measured in the latest quiet second
     this.last = null;
   }
 
@@ -467,23 +479,16 @@ export class HumDetector {
     const [dre, dim] = this.hann(kd, mnd, sd0, this.Sd, this.dispStep);
     const displayDb = db(Math.hypot(dre, dim) / Math.max(0.1, hannGain((mpd - mnd) / this.dispStep)));
 
-    // Quiet-passage measurement: the latest segment, if the programme was quiet in it.
-    const lastSlot = (this.segIndex - 1) % S;
-    const segRmsDb = pdb(this.segMs[lastSlot]);
-    if (segRmsDb < o.quietRmsDbfs && this.segIndex >= 1) {
-      this.sumSegments(1);
-      const mq = Math.max(-this.M + this.segStep, Math.min(this.M - this.segStep, Math.round(mpd)));
-      const [qre, qim] = this.hann(kd, mq, this.segIndex - 1, 1, this.segStep);
-      this.quiet = { levelDb: db(Math.hypot(qre, qim)), t, k: kd };
-    }
     // Hum in pauses: whenever the whole last second was quiet (works whether or not the hum
-    // is PRESENT, which needs it to stand out through the speech for seconds on end).
+    // is PRESENT, which needs it to stand out through the speech for seconds on end). It uses
+    // the same last Sd segments, still summed in winRe/winIm from the display level.
+    const segRmsDb = pdb(this.segMs[(this.segIndex - 1) % S]);
     let pauseNow = this.segIndex >= this.Sd;
     for (let j = 1; pauseNow && j <= this.Sd; j++) pauseNow = pdb(this.segMs[(this.segIndex - j) % S]) < o.quietRmsDbfs;
-    if (pauseNow) this.measurePause(t, fundamentalHz);
+    if (pauseNow) this.measurePause(t, present ? fundamentalHz : null);
 
     // Programme in the mains band (f0 ± 5 Hz, e.g. 45–55 Hz) from the detect-window grid,
-    // leaving out the hum's own bins: the background a hum at alertLevelDbfs would have
+    // leaving out the hum's own bins: the background a hum at maskReferenceDbfs would have
     // to stand out from. Reported per detect bin, as sine-equivalent dBFS.
     this.sumSegments(S);
     let bandPow = 0, bgPow = 0, nbg = 0;
@@ -498,7 +503,7 @@ export class HumDetector {
     }
     const binBgDb = pdb(bgPow / Math.max(1, nbg));
     const nominalDb = db(amp(1, 0));
-    const visible = o.alertLevelDbfs - binBgDb >= o.minProminenceDb;
+    const visible = o.maskReferenceDbfs - binBgDb >= o.minProminenceDb;
 
     const status = present ? PRESENT : visible ? NOT_DETECTED : MASKED;
 
@@ -547,10 +552,10 @@ export class HumDetector {
       bandDb: pdb(bandPow / 2 / 1.5), // band power in dBFS (Hann ENBW 1.5 bins)
       backgroundDb: binBgDb,
       programmeRmsDb: segRmsDb,
-      quiet: this.quiet ? { levelDb: this.quiet.levelDb, ageSec: t - this.quiet.t } : null,
-      // Latest pause: levelDb is the power sum of the harmonics standing out (null: fewer
-      // than pauseMinLines of them, i.e. no buzz), lines their numbers k (k × mains Hz).
-      pause: this.pause ? { levelDb: this.pause.levelDb, lines: this.pause.lines, ageSec: t - this.pause.t } : null,
+      maskReferenceDb: o.maskReferenceDbfs,
+      // Latest pause: levelDb is the power sum of the harmonics standing out (null: none),
+      // lines their numbers k (k × mains Hz), buzz whether there were pauseMinLines of them.
+      pause: this.pause ? { ...this.pause, ageSec: t - this.pause.t } : null,
       harmonics,
       signature,
       signatureTentative,
@@ -560,35 +565,55 @@ export class HumDetector {
   }
 
   // Every harmonic over the last second (a pause), each against the larger of its controls
-  // ±controlOffsetHz away (the 1 s Hann window has 1 Hz bins, so a mains line doesn't leak
+  // ±pauseControlHz away (the 1 s Hann window has 1 Hz bins, so a mains line doesn't leak
   // there). Buzz is often strongest at 150–450 Hz, which laptop and phone speakers play,
   // while 50 Hz itself is quiet and barely reproduced: so all harmonics count, summed.
+  // fundamentalHz: the measured mains frequency when the hum is PRESENT, else null (then each
+  // harmonic is searched within ±k·pauseDriftHz of nominal). winRe/winIm must hold the last
+  // Sd segments.
   measurePause(t, fundamentalHz) {
     const o = this.opt, step = this.dispStep, s0 = this.segIndex - this.Sd;
-    this.sumSegments(this.Sd);
     const amp = (k, m) => {
       const [re, im] = this.hann(k, m, s0, this.Sd, step);
       return Math.hypot(re, im);
     };
-    const reach = this.M - step - this.ctrl; // the peak may move this far and keep its controls on the grid
-    const lines = [];
-    let p = 0;
-    for (let k = 1; k <= this.K; k++) {
-      const centre = Math.round((k * (fundamentalHz - o.mainsFrequencyHz)) / this.delta);
-      let best = 0, bm = 0;
-      for (let m = Math.max(-reach, centre - 1); m <= Math.min(reach, centre + 1); m++) {
+    const reach = this.pauseReach;
+    const clamp = (m) => Math.max(-reach, Math.min(reach, m));
+    // The loudest point within lo..hi and how far it beats its two controls (dB).
+    const peak = (k, lo, hi) => {
+      let best = 0, bm = clamp(lo);
+      for (let m = clamp(lo); m <= clamp(hi); m++) {
         const a = amp(k, m);
         if (a > best) [best, bm] = [a, m];
       }
-      const ctl = Math.max(amp(k, bm - this.ctrl), amp(k, bm + this.ctrl));
-      if (db(best) - db(ctl) >= o.pauseLineDb) {
+      return { a: best, m: bm, above: db(best) - db(Math.max(amp(k, bm - this.pauseCtrl), amp(k, bm + this.pauseCtrl))) };
+    };
+    // Where the harmonics are: from the measured frequency when PRESENT; otherwise from the
+    // clearest of the first five within ±k·pauseDriftHz of nominal, so every harmonic is then
+    // looked for at its own multiple (±1 grid step), like real buzz, not wherever noise peaks.
+    let perK = fundamentalHz === null ? null : (fundamentalHz - o.mainsFrequencyHz) / this.delta;
+    if (perK === null) {
+      let clearest = null;
+      for (let k = 1; k <= Math.min(5, this.K); k++) {
+        const w = Math.ceil((k * o.pauseDriftHz) / this.delta);
+        const pk = peak(k, -w, w);
+        if (pk.above >= o.pauseLineDb && (!clearest || pk.above > clearest.above)) clearest = { ...pk, k };
+      }
+      perK = clearest ? clearest.m / clearest.k : 0;
+    }
+    const lines = [];
+    let p = 0;
+    for (let k = 1; k <= this.K; k++) {
+      const c = Math.round(k * perK);
+      const pk = peak(k, c - 1, c + 1);
+      if (pk.above >= o.pauseLineDb) {
         lines.push(k);
-        p += best * best;
+        p += pk.a * pk.a;
       }
     }
     // Checked on orchestral, string quartet and studio recordings: quiet passages gave at most
     // two lines (notes on a multiple of the mains frequency), real buzz five to seven.
-    this.pause = { levelDb: lines.length >= o.pauseMinLines ? db(Math.sqrt(p)) : null, lines, t };
+    this.pause = { levelDb: lines.length ? db(Math.sqrt(p)) : null, lines, buzz: lines.length >= o.pauseMinLines, t };
   }
 
   // Persistence, phase coherence and steadiness over the history of one reference harmonic.

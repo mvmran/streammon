@@ -8,7 +8,7 @@ import { LoudnessMeter } from '../src/dsp/loudness.js';
 import { TruePeakChannel } from '../src/dsp/truepeak.js';
 import { stereoFromSums } from '../src/dsp/stereo.js';
 import { AlertMonitor, DEFAULT_ALERTS, mergeAlertConfig } from '../src/dsp/alerts.js';
-import { migrateSaved } from '../src/ui/settings.js';
+import { migrateSaved, changedFromDefaults } from '../src/ui/settings.js';
 import { csvHeader, csvRow, summaryJson } from '../src/dsp/report.js';
 import { octaveBalance, thirdOctaveLevels, THIRD_OCTAVE_CENTRES } from '../src/dsp/bands.js';
 import { fft } from '../src/dsp/fft.js';
@@ -217,6 +217,12 @@ describe('alerts', () => {
     assert.deepEqual([own.hum.alertLevelDbfs, own.display.spectrogramFloorDb], [-70, -80]);
     const chosenAfter = migrateSaved({ version: 2, hum: { alertLevelDbfs: -75 } });
     assert.equal(chosenAfter.hum.alertLevelDbfs, -75, 'once saved as version 2, -75 is a choice');
+  });
+
+  test('settings are saved as changes from the defaults, so later default changes apply', () => {
+    const cfg = mergeAlertConfig(DEFAULT_ALERTS, { hum: { mainsFrequencyHz: 60 }, sound: true });
+    assert.deepEqual(changedFromDefaults(cfg), { hum: { mainsFrequencyHz: 60 }, sound: true });
+    assert.deepEqual(changedFromDefaults(mergeAlertConfig(DEFAULT_ALERTS)), {});
   });
 });
 

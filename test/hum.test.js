@@ -52,10 +52,12 @@ fileDescribe('Reference_speech_recording.wav', '(mains 50 Hz)', () => {
     const sd = Math.sqrt(lv.reduce((a, b) => a + (b - m) ** 2, 0) / lv.length);
     assert.ok(sd < 0.5, `std ${sd.toFixed(2)}`);
   });
-  test('same level in speech pauses as while talking (±1 dB)', () => {
-    const last = r.results[r.results.length - 1];
-    assert.ok(last.quiet, 'no quiet passage measured');
-    near(last.quiet.levelDb, median(r.settled.map((x) => x.levelDb)), 1, 'quiet-passage level');
+  test('measured in speech pauses too: 50 Hz and its harmonics, about the level while talking', () => {
+    const p = r.results.map((x) => x.pause).find((x) => x && x.levelDb !== null);
+    assert.ok(p, 'no pause measured');
+    assert.ok(p.lines.includes(1), `lines ${p.lines}`);
+    const talking = median(r.settled.map((x) => x.levelDb));
+    assert.ok(p.levelDb >= talking - 1 && p.levelDb <= talking + 4, `pause ${p.levelDb.toFixed(1)} vs ${talking.toFixed(1)} dBFS (harmonics add a little)`);
   });
   test('control background around -96 dBFS or lower; prominence > 25 dB', () => {
     // Reference figure about -96 dBFS; the 4 s Hann control here measures about -104.
@@ -103,15 +105,15 @@ fileDescribe('Reference_speech_recording.wav', 'audibility via the analyzer', ()
 });
 
 fileDescribe('Reference_speech_recording.wav', '(mains 60 Hz)', () => {
-  // The real 59.9 Hz tone at -86 dBFS must never read as 60 Hz hum. Whether the rest reads
-  // NOT DETECTED or MASKED depends on the alert level: under speech, a hum at -85 dBFS
-  // (the default) would be hidden, so it is mostly MASKED.
-  test('never PRESENT', () => {
+  // The real 59.9 Hz tone at -86 dBFS must never read as 60 Hz hum. MASKED vs NOT DETECTED
+  // is judged against maskReferenceDbfs (-75), not the alert level, so the -85 default
+  // alert level leaves this NOT DETECTED.
+  test('NOT DETECTED, whatever the alert level', () => {
     const { sampleRate, channels: [L, R] } = wav('Reference_speech_recording.wav');
-    const r = runHum(L, R, sampleRate, { mainsFrequencyHz: 60 });
-    assert.ok(r.settled.every((x) => x.status === NOT_DETECTED || x.status === MASKED), statuses(r.settled));
-    const loud = runHum(L, R, sampleRate, { mainsFrequencyHz: 60, alertLevelDbfs: -75 });
-    assert.ok(loud.settled.every((x) => x.status === NOT_DETECTED), `with a -75 dBFS alert level: ${statuses(loud.settled)}`);
+    for (const alertLevelDbfs of [-75, -85]) {
+      const r = runHum(L, R, sampleRate, { mainsFrequencyHz: 60, alertLevelDbfs });
+      assert.ok(r.settled.every((x) => x.status === NOT_DETECTED), `alert level ${alertLevelDbfs}: ${statuses(r.settled)}`);
+    }
   });
 });
 
@@ -311,12 +313,46 @@ describe('hum in pauses', () => {
     assert.ok(r.rows.some((row) => Number.isFinite(row.humPauseDb)), 'rows carry the pause level (CSV hum_pause_dbfs)');
   });
 
+  test('one pause of about 2 s is enough; the alert clears a minute after the last buzz', () => {
+    const one = speechLike(sr, 40, -28).map((v, i) => (i / sr >= 20 && i / sr < 22 ? v * 0.004 : v));
+    const r = alerts(addHum(one, sr, { levelDb: -80, harmonics: { 1: 0, 3: 4, 5: 4, 7: 2 } }));
+    assert.ok(r.ids.includes('humPause'), JSON.stringify(r.ids));
+    const m = new AlertMonitor();
+    const row = (t, db) => ({ t, status: 'CLEAN', humPauseDb: db, humPauseHz: [50, 150, 250], humPauseReadings: db === null ? 0 : 1 });
+    for (let t = 1; t <= 120; t++) m.update(row(t, t === 10 || t === 50 ? -70 : null));
+    // Raised at 50 (second reading within a minute); held until 50 + 60 s, plus the
+    // monitor's usual clear-after time.
+    const m2 = new AlertMonitor();
+    const seen = [];
+    for (let t = 1; t <= 130; t++) if ('humPause' in m2.update(row(t, t === 10 || t === 50 ? -70 : null)).active) seen.push(t);
+    assert.equal(seen[0], 50);
+    assert.ok(seen.at(-1) >= 109 && seen.at(-1) <= 116, `last active at ${seen.at(-1)} s`);
+  });
+
+  test('a plain 50 Hz hum shows in the pause reading, but is not buzz', () => {
+    const x = addHum(speech, sr, { levelDb: -70, harmonics: { 1: 0 } });
+    const ps = [];
+    new HumDetector(sr, { mainsFrequencyHz: 50 }, { onResult: (h) => h.pause && h.pause.ageSec === 0 && ps.push(h.pause), onEvent() {} }).process(x, x);
+    // Noise can add a stray line now and then; never three.
+    assert.ok(ps.length && ps.every((p) => p.lines.includes(1) && !p.buzz && Math.abs(p.levelDb + 70) < 1.5), JSON.stringify(ps.slice(0, 3)));
+    assert.ok(ps.filter((p) => p.lines.join() === '1').length >= ps.length * 0.8, JSON.stringify(ps.map((p) => p.lines.join())));
+    assert.ok(!alerts(x).ids.includes('humPause'));
+  });
+
+  test('buzz on mains running 0.15 Hz fast keeps its upper harmonics', () => {
+    const x = addHum(speech, sr, { freq: 50.15, levelDb: -70, harmonics: { 1: 0, 3: 0, 5: 0, 7: 0, 9: 0 } });
+    const ps = [];
+    new HumDetector(sr, { mainsFrequencyHz: 50 }, { onResult: (h) => h.pause && h.pause.ageSec === 0 && ps.push(h.pause.lines.join()), onEvent() {} }).process(x, x);
+    assert.ok(ps.length && ps.every((l) => ['1', '3', '5', '7', '9'].every((k) => l.split(',').includes(k))), ps.join(' | '));
+  });
+
   test('no alert for clean speech, a single stray tone, or buzz below the level', () => {
     assert.deepEqual(alerts(speech).ids, []);
     assert.deepEqual(alerts(speech.map((v, i) => v + 3e-4 * Math.sin((2 * Math.PI * 150 * i) / sr))).ids, [], 'one line is a note, not buzz');
-    const quietBuzz = addHum(speech, sr, { levelDb: -90, harmonics: { 1: 0, 3: 4, 5: 4, 7: 2 } }); // about -81 dBFS summed
+    // About -84 dBFS summed (readings scatter by about ±1.5 dB with the room noise).
+    const quietBuzz = addHum(speech, sr, { levelDb: -93, harmonics: { 1: 0, 3: 4, 5: 4, 7: 2 } });
     assert.ok(!alerts(quietBuzz).ids.includes('humPause'));
-    assert.ok(alerts(quietBuzz, { hum: { pauseAlertDbfs: -85 } }).ids.includes('humPause'), 'the level is adjustable');
+    assert.ok(alerts(quietBuzz, { hum: { pauseAlertDbfs: -88 } }).ids.includes('humPause'), 'the level is adjustable');
   });
 });
 

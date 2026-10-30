@@ -171,10 +171,9 @@ Hum is most audible in speech and pauses, because music covers it.
 
 - **PRESENT:** a mains-locked tone that stands out from its surroundings, stays on
   frequency, keeps a steady phase and level, and lasts at least 5 of the last 10 seconds.
-  The panel shows its frequency, level, how far it stands out, and its level in quiet
-  passages.
+  The panel shows its frequency, level and how far it stands out.
 - **NOT DETECTED:** no hum, and the programme near the mains frequency is quiet enough
-  that a hum at the alert level would have shown.
+  that a hum at −75 dBFS would have shown.
 - **MASKED:** the programme near the mains frequency (bass notes, for example) is too loud
   to judge. It never claims "no hum" during loud music.
 
@@ -189,7 +188,7 @@ Hum is most audible in speech and pauses, because music covers it.
 - **Event log:** onset, offset, level steps of 6 dB or more, and changes to the mains
   setting.
 - **Alert:** hum PRESENT and above −85 dBFS for 5 s raises an alert (adjustable).
-- **Hum in pauses:** whenever it goes quiet for a second, the mains harmonics that stand out are added up ("Buzz in pauses" in the hum panel, `hum_pause_dbfs` in the CSV). Three or more lines at −80 dBFS or more, twice within a minute, raise a "Hum in pauses" alert (adjustable). This is the buzz people hear on laptop and phone speakers, often at 150–450 Hz, even when the 50 Hz tone itself is too quiet to show as PRESENT through the speech.
+- **Hum in pauses:** whenever it goes quiet for a second, the mains harmonics that stand out are added up ("Buzz in pauses" in the hum panel, `hum_pause_dbfs` in the CSV). Three or more lines together at −80 dBFS or more, in a pause of about 2 s or several shorter ones within a minute, raise a "Hum in pauses" alert (adjustable); it clears a minute after the last such pause. One or two lines (a plain hum) still show in the panel but don't count as buzz. This is the buzz people hear on laptop and phone speakers, often at 150–450 Hz, even when the 50 Hz tone itself is too quiet to show as PRESENT through the speech.
 
 In **File** mode, **Listen to isolated hum** plays 20 s from the current position with
 everything except narrow slices around the hum harmonics removed, raised by the chosen gain.

@@ -61,7 +61,8 @@ export class StreamAnalyzer {
     this.crest.reset();
     this.hum.reset();
     this.humFrom = 0; // session time the hum detector last (re)started at
-    this.secPause = null; // buzz measured in a pause during the current second
+    this.secPause = null; // buzz measured in a pause during the current second (the loudest)
+    this.secPauseCount = 0; // how many half-second readings found buzz in it
     this.lastHum = null;
     this.humSeconds = { [HUM_PRESENT]: 0, [HUM_NOT_DETECTED]: 0, [HUM_MASKED]: 0 };
     this.humMaxDb = -Infinity;
@@ -220,14 +221,17 @@ export class StreamAnalyzer {
       humProminenceDb: h && h.present ? h.prominenceDb : null,
       humProjectedDb: h && h.present ? h.projectedDb : null,
       humSignature: h && h.present ? h.signature : null,
-      // Buzz in a pause this second (any status): dBFS of the harmonics summed, and which.
+      // Buzz in a pause this second (any status): dBFS of the harmonics summed, which ones,
+      // and how many half-second readings found it (a 2 s pause gives about three).
       humPauseDb: this.secPause ? this.secPause.levelDb : null,
       humPauseHz: this.secPause ? this.secPause.lines.map((k) => k * this.hum.opt.mainsFrequencyHz) : null,
+      humPauseReadings: this.secPauseCount,
     };
     this.s = { peak: 0, tp: 0 };
     // The file worker has no StereoStatus: there no status means ordinary stereo.
     this.trackStereo(row.stereoStatus || (this.stereoStatus ? null : STEREO), row.stereoDetail, t);
     this.secPause = null;
+    this.secPauseCount = 0;
     if (this.onSecond) this.onSecond(row);
   }
 
@@ -300,7 +304,10 @@ export class StreamAnalyzer {
     r.projectedDb = r.present && Number.isFinite(programme) ? r.levelDb + (this.hum.opt.speechTargetLufs - programme) : null;
     r.speechTargetLufs = this.hum.opt.speechTargetLufs;
     // Buzz measured in a pause during this second (the loudest, if two half-second hops did).
-    if (r.pause && r.pause.ageSec === 0 && r.pause.levelDb !== null && !(this.secPause && this.secPause.levelDb >= r.pause.levelDb)) this.secPause = r.pause;
+    if (r.pause && r.pause.ageSec === 0 && r.pause.buzz) {
+      this.secPauseCount++;
+      if (!(this.secPause && this.secPause.levelDb >= r.pause.levelDb)) this.secPause = r.pause;
+    }
     this.lastHum = r;
     if (this.onHum) this.onHum(r);
   }

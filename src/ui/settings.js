@@ -4,9 +4,9 @@ import { DEFAULT_ALERTS, mergeAlertConfig } from '../dsp/alerts.js';
 
 const KEY = 'streammon.alerts.v1';
 
-// Saved settings hold every value, so a changed default wouldn't reach anyone who has saved
-// once. Settings saved before version 2 that still hold an old default get the new one;
-// a value someone chose differently is kept.
+// Settings are saved as the differences from DEFAULT_ALERTS (version 2), so a changed
+// default reaches everyone who didn't change that value. Before version 2 every value was
+// saved: those still holding an old default get the new one; other values are kept.
 const SETTINGS_VERSION = 2;
 const OLD_DEFAULTS = [
   ['hum', 'alertLevelDbfs', -75], // -85 since version 2: quieter hum is audible in pauses
@@ -29,9 +29,22 @@ export function loadAlertConfig() {
   }
 }
 
+// The values that differ from the defaults, section by section.
+export function changedFromDefaults(cfg, defaults = DEFAULT_ALERTS) {
+  const out = {};
+  for (const [k, v] of Object.entries(cfg)) {
+    if (!(k in defaults)) continue;
+    if (v && typeof v === 'object' && typeof defaults[k] === 'object') {
+      const d = Object.fromEntries(Object.entries(v).filter(([kk, vv]) => defaults[k][kk] !== vv));
+      if (Object.keys(d).length) out[k] = d;
+    } else if (defaults[k] !== v) out[k] = v;
+  }
+  return out;
+}
+
 function saveAlertConfig(cfg) {
   try {
-    localStorage.setItem(KEY, JSON.stringify({ ...cfg, version: SETTINGS_VERSION }));
+    localStorage.setItem(KEY, JSON.stringify({ ...changedFromDefaults(cfg), version: SETTINGS_VERSION }));
   } catch {
     // Storage unavailable (private window): settings last for this page only.
   }
