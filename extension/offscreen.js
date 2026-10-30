@@ -10,10 +10,11 @@ import { summaryJson } from './src/dsp/report.js';
 import { EventLog, insertByTime } from './src/ui/log.js';
 import { SessionRecorder } from './src/ui/session.js';
 import { loadAlertConfig } from './src/ui/settings.js';
-import { fmtClock, fmtStamp, fileStamp, frameStep } from './src/ui/format.js';
+import { fmtClock, fmtStamp, fileStamp } from './src/ui/format.js';
 import { readFine } from './src/ui/spectrum.js';
 import { SpectrumSecond, thirdOctaveLevels } from './src/dsp/bands.js';
 import { PanGrid } from './src/dsp/pan.js';
+import { encodePan } from './src/dsp/csv-codec.js';
 import { CHANNEL } from './client.js';
 
 const HISTORY_MAX = 3600;
@@ -40,8 +41,7 @@ let testAudio = null;
 const spectrumWanted = new Map(); // view id -> Date.now() until which it wants spectrum data
 let spectrumBufs = null; // reused: the BroadcastChannel copies them anyway
 const spectrumSecond = new SpectrumSecond(); // each second's 1/3-octave spectrum, for the CSV
-const panGrid = new PanGrid(); // the pan map's data, for the CSV's per-band summary
-let panT = null; // audio-clock time of the last frame fed to it
+const panGrid = new PanGrid(); // the pan map's data: sent to dashboards, and each second's in the CSV
 
 const engine = new AudioEngine({
   onFrame,
@@ -81,14 +81,15 @@ function onSecond(row) {
   row.wallClock = fmtStamp(wall);
   row.clock = fmtClock(wall);
   row.spectrumDb = spectrumSecond.take();
-  row.pan = panGrid.summary();
-  recorder.add(row);
-  s.lastRow = row;
-  // The views draw charts and meters from rows, never the per-band and spectrum columns
-  // (only the CSV has those): keep them out of the history and the messages, so a view's
-  // snapshot doesn't carry 3600 rows of them.
-  const { bands, spectrumDb, pan, ...view } = row;
+  // The pan map is compressed asynchronously; the row goes into the CSV once it is.
+  const panSecond = panGrid.takeSecond();
+  const full = row;
+  recorder.addLater(full, encodePan(panSecond).then((code) => (full.panCode = code)));
+  // The views draw charts and meters from rows, never the per-band and spectrum data (only
+  // the CSV has it): keep it out of the history, the snapshot and the messages.
+  const { bands, spectrumDb, ...view } = row;
   row = view;
+  s.lastRow = row;
   s.history.push(row);
   if (s.history.length > HISTORY_MAX) s.history.shift();
   broadcast({ type: 'row', row });
@@ -165,7 +166,6 @@ function clearSession() {
   recorder.clear();
   spectrumSecond.reset();
   panGrid.reset();
-  panT = null;
 }
 
 // Clears the board (e.g. for a new song) without stopping the capture.
@@ -207,7 +207,8 @@ const SPECTRUM_KEEP_MS = 75000;
 // One spectrum message per analyzer frame (100 ms of audio), stamped with the frame's
 // audio-clock time so the dashboard's spectrogram rows are evenly spaced. The spectra are
 // read every frame whether or not a dashboard is open: the CSV gets the mix's 1/3-octave
-// levels and the pan map's per-band summary.
+// levels and the pan map. Dashboards get the finished pan grid (1189 values), not the two
+// channel spectra (8192), and draw it as it is.
 function sendSpectrum(f) {
   if (!engine.analyser) return;
   const n = engine.analyser.frequencyBinCount;
@@ -218,12 +219,11 @@ function sendSpectrum(f) {
   spectrumSecond.add(thirdOctaveLevels(data, engine.ctx.sampleRate, fine));
   engine.analyserL.getFloatFrequencyData(left);
   engine.analyserR.getFloatFrequencyData(right);
-  panGrid.update(left, right, engine.ctx.sampleRate, frameStep(panT, f.t));
-  panT = f.t;
+  panGrid.update(left, right, engine.ctx.sampleRate, f.t);
   const now = Date.now();
   for (const [view, until] of spectrumWanted) if (until < now) spectrumWanted.delete(view);
   if (!spectrumWanted.size) return;
-  broadcast({ type: 'spectrum', data, left, right, fine, sampleRate: engine.ctx.sampleRate, t: f.t });
+  broadcast({ type: 'spectrum', data, fine, pan: Float32Array.from(panGrid.grid), sampleRate: engine.ctx.sampleRate, t: f.t });
 }
 
 function exportBase() {
@@ -251,7 +251,8 @@ channel.onmessage = async (e) => {
   } else if (m.type === 'no-spectrum') {
     spectrumWanted.delete(m.view || 'view');
   } else if (m.type === 'get-csv') {
-    broadcast({ type: 'reply', id: m.id, name: `${exportBase()}.csv`, text: recorder.csv() });
+    // After the rows still being finished (their pan maps are compressed asynchronously).
+    recorder.later.then(() => broadcast({ type: 'reply', id: m.id, name: `${exportBase()}.csv`, text: recorder.csv() }));
   } else if (m.type === 'get-json') {
     const summary = s.running ? await engine.summary() : s.summary;
     const meta = {

@@ -85,13 +85,16 @@ charts. The **←** and **→** keys step one second (**Shift**: 10 s, **Ctrl**:
 hold one down to keep going.
 
 CSVs recorded live from 31 October 2026 also hold each second's **Stereo by band** readings,
-**⅓-octave spectrum** and **pan map summary** (each ⅓-octave band's level, average position
-and spread), so Stereo by band, the spectrum bars, the Octave balance, a coarse spectrogram
-(one band per colour, about the last 2 minutes) and the pan map (each band drawn as a spread
-around its average position) follow along too. That makes about 60 KB a minute: a 2-hour
-service is about 7 MB instead of 1.2 MB. A CSV holds one row of readings per second, so there
-is no audio or hum harmonics, and integrated-loudness resets are only in the JSON export.
-CSVs from analysed audio files have none of the stereo, spectrum or pan columns.
+**⅓-octave spectrum** and the **full pan map**, so Stereo by band, the spectrum bars, the
+Octave balance, a coarse spectrogram (one band per colour, about the last 2 minutes) and the
+pan map follow along too. They are in three columns, `stereo_bands`, `spectrum` and
+`pan_map`, as compact encoded text (like `p1eJzt…`): not readable in a spreadsheet, but safe
+to open and re-save in Excel or Google Sheets (only letters, digits, `-` and `_`, never
+starting with a symbol, number or date). The pan map is compressed and stored in 3 dB steps
+over its 45 dB display range. A 2-hour service is about 6 MB with stereo music and about
+3 MB for mostly speech (1.2 MB without these columns). A CSV holds one row of readings per
+second, so there is no audio or hum harmonics, and integrated-loudness resets are only in the
+JSON export. CSVs from analysed audio files have none of these three columns.
 
 ## Chrome extension: what viewers hear on YouTube
 

@@ -10,10 +10,9 @@ export function parseNum(s) {
 }
 const parseStr = (s) => (s === undefined || s === '' ? null : s);
 
-import { OCTAVE_CENTRES, OCTAVE_LABELS, THIRD_OCTAVE_LABELS } from './bands.js';
+import { encodeBands, decodeBands, encodeSpectrum, decodeSpectrum } from './csv-codec.js';
 
-// One list for export and import (session-csv.js): { name, field, get, parse }, and set(row,
-// value) for a column that is one entry of an array field.
+// One list for export and import (session-csv.js): { name, field, get, parse }.
 const number = (name, field, digits = 1) => ({ name, field, get: (r) => num(r[field], digits), parse: parseNum });
 const text = (name, field) => ({ name, field, get: (r) => r[field] || '', parse: parseStr });
 const count = (name, field) => ({ name, field, get: (r) => String(r[field] ?? 0), parse: (s) => parseNum(s) ?? 0 });
@@ -54,55 +53,13 @@ export const CSV_COLUMNS = [
   count('fullscale_samples', 'fullScaleSamples'),
   number('integrated_s', 'integratedSeconds', 0),
   count('hum_pause_readings', 'humPauseReadings'),
-  // Stereo by band (the Stereo by band chart's 1 s readings, live sessions only):
-  // correlation, balance (R over L) and level per octave band.
-  ...OCTAVE_LABELS.flatMap((name, i) => [
-    band(`sb_${name}_corr`, i, 'correlation', 3),
-    band(`sb_${name}_bal_db`, i, 'balanceDb', 1),
-    band(`sb_${name}_dbfs`, i, 'levelDb', 1),
-  ]),
-  // The 1/3-octave spectrum averaged over the second (dB, as the spectrum bars).
-  ...THIRD_OCTAVE_LABELS.map((name, i) => ({
-    name: `spec_${name}_db`,
-    field: 'spectrumDb',
-    get: (r) => (r.spectrumDb ? num(r.spectrumDb[i]) : ''),
-    parse: parseNum,
-    set: (r, v) => ((r.spectrumDb ??= new Array(THIRD_OCTAVE_LABELS.length).fill(null))[i] = v),
-  })),
-  // The pan map's summary per 1/3-octave band: level, average position (−1 left … +1
-  // right) and spread around it (src/dsp/pan.js).
-  ...THIRD_OCTAVE_LABELS.flatMap((name, i) => [
-    pan(`pan_${name}_dbfs`, i, 'levelDb', 1),
-    pan(`pan_${name}_pos`, i, 'pos', 2),
-    pan(`pan_${name}_width`, i, 'width', 2),
-  ]),
+  // The charts' data each second, each in one spreadsheet-safe encoded cell (csv-codec.js;
+  // live sessions only): Stereo by band's 1 s readings, the 1/3-octave spectrum averaged
+  // over the second, and the second's full pan map (written by the caller: it is async).
+  { name: 'stereo_bands', field: 'bands', get: (r) => encodeBands(r.bands), parse: decodeBands },
+  { name: 'spectrum', field: 'spectrumDb', get: (r) => encodeSpectrum(r.spectrumDb), parse: decodeSpectrum },
+  text('pan_map', 'panCode'),
 ];
-
-function pan(name, i, key, digits) {
-  return {
-    name,
-    field: 'pan',
-    get: (r) => (r.pan && r.pan[i] ? num(r.pan[i][key], digits) : ''),
-    parse: parseNum,
-    set: (r, v) => {
-      r.pan ??= THIRD_OCTAVE_LABELS.map(() => ({ levelDb: null, pos: null, width: null }));
-      r.pan[i][key] = v;
-    },
-  };
-}
-
-function band(name, i, key, digits) {
-  return {
-    name,
-    field: 'bands',
-    get: (r) => (r.bands && r.bands[i] ? num(r.bands[i][key], digits) : ''),
-    parse: parseNum,
-    set: (r, v) => {
-      r.bands ??= OCTAVE_CENTRES.map((fc) => ({ fc, correlation: null, balanceDb: null, levelDb: null }));
-      r.bands[i][key] = v;
-    },
-  };
-}
 
 function num(x, digits = 1) {
   if (x === null || x === undefined || Number.isNaN(x)) return '';

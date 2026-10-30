@@ -143,7 +143,7 @@ const hub = connectHub({
   // so the spectrogram has no gaps; drawn in tick().
   spectrum(m) {
     if (spectrum) spectrum.updateData(m.data, m.sampleRate, m.t, m.fine || null);
-    if (panMap && m.left && Number.isFinite(m.t)) panMap.update(m.left, m.right, m.sampleRate, m.t);
+    if (panMap && m.pan) panMap.setGrid(m.pan); // the offscreen document's grid, drawn as it is
   },
   hum(m) {
     humView.render(m.hum);

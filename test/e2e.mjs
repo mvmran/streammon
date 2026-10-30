@@ -255,8 +255,8 @@ async function main() {
     check(Number(lines[1].split(',')[1]) <= 1, `CSV starts at the Reset (first row at ${lines[1].split(',')[1]} s)`);
     const head = lines[0].split(',');
     const last = lines.at(-1).split(',');
-    check(last[head.indexOf('spec_1k_db')] !== '' && last[head.indexOf('sb_1k_corr')] !== '', `live CSV has the spectrum and Stereo by band (1k: ${last[head.indexOf('spec_1k_db')]} dB, corr ${last[head.indexOf('sb_1k_corr')]})`);
-    check(last[head.indexOf('pan_1k_pos')] !== '' && last[head.indexOf('pan_1k_dbfs')] !== '', `live CSV has the pan map summary (1k: ${last[head.indexOf('pan_1k_dbfs')]} dBFS at ${last[head.indexOf('pan_1k_pos')]}, width ${last[head.indexOf('pan_1k_width')]})`);
+    const codes = ['stereo_bands', 'spectrum', 'pan_map'].map((name) => last[head.indexOf(name)]);
+    check(codes.every((c) => /^[a-z][0-9][A-Za-z0-9_-]+$/.test(c)), `live CSV has the encoded chart data (${codes.map((c) => `${c.slice(0, 2)}… ${c.length} chars`).join(', ')})`);
 
     console.log('That live CSV opened in file mode (Stereo by band, spectrum):');
     const livePath = join(OUT, 'live-session.csv');
@@ -269,13 +269,21 @@ async function main() {
     check(balance.filter((v) => v !== '--').length >= 8, `octave balance from the CSV (${balance.join(' ')})`);
     const bandsNote = await page.textContent('#stereo-bands-note');
     check(bandsNote && bandsNote !== '--', `Stereo by band from the CSV (${bandsNote})`);
-    // The pan map is drawn from the summary: its centre column (a mono feed) is lit.
-    const lit = await page.evaluate(() => {
+    // The pan map is decoded from the CSV: for a mono feed its centre cells are lit and the
+    // sides dark. Sampled 2 px right of the plot's centre (margins: 42 px left, 10 right,
+    // 8 top, 36 bottom), off the centre line that is drawn even with no data.
+    await page.waitForTimeout(200); // decoded asynchronously, drawn on the next UI tick
+    const pan = await page.evaluate(() => {
       const c = document.getElementById('pan-map');
-      const px = c.getContext('2d').getImageData(Math.round(c.width / 2), Math.round(c.height / 2), 1, 1).data;
-      return px[0] + px[1] + px[2];
+      const dpr = c.width / c.clientWidth;
+      const at = (fx) => {
+        const x = (42 + (c.clientWidth - 52) * fx + 2) * dpr, y = ((8 + c.clientHeight - 36) / 2) * dpr;
+        const d = c.getContext('2d').getImageData(Math.round(x), Math.round(y), 1, 1).data;
+        return d[0] + d[1] + d[2];
+      };
+      return { centre: at(0.5), side: Math.max(at(0.1), at(0.9)) };
     });
-    check(lit > 150, `pan map drawn from the CSV (centre pixel brightness ${lit})`);
+    check(pan.centre > 300 && pan.side < 120, `pan map drawn from the CSV (centre ${pan.centre}, sides ${pan.side})`);
     await page.locator('#stereo-bands').scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(OUT, 'csv-stereo-spectrum.png'), fullPage: false });
 

@@ -7,6 +7,8 @@ import { isolateHum } from '../dsp/hum-isolate.js';
 import { summaryJson, csvHeader, csvRow } from '../dsp/report.js';
 import { readSessionCsv, sessionEvents, sessionSummary, rowAt, stepRows } from '../dsp/session-csv.js';
 import { SpectrumSecond } from '../dsp/bands.js';
+import { PanGrid } from '../dsp/pan.js';
+import { encodePan, decodePan } from '../dsp/csv-codec.js';
 import { TimeChart } from './charts.js';
 import { SpectrumView } from './spectrum.js';
 import { PanMapView } from './pan-map.js';
@@ -114,6 +116,7 @@ const spectrum = new SpectrumView({ bands: $('bands'), sgram: $('sgram'), balanc
 spectrum.setSpectrogramFloor(state.alertCfg.display.spectrogramFloorDb);
 const panMap = new PanMapView($('pan-map'));
 let panL = null, panR = null; // reused spectrum buffers
+const panGrid = new PanGrid(); // the pan map's data: drawn live, and each second's for the CSV
 const spectrumSecond = new SpectrumSecond(); // each second's 1/3-octave spectrum, for the CSV
 
 const meters = new MetersView(() => state.alertCfg);
@@ -129,15 +132,21 @@ let timeline = null; // created when the file panel is first shown (it needs a l
 
 function onRow(row) {
   const spectrumDb = spectrumSecond.take();
+  const panSecond = panGrid.takeSecond();
   if (state.mode === 'file') {
     row.t += state.playOffset;
   } else {
     row.spectrumDb = spectrumDb;
-    row.pan = panMap.summary();
     const wall = new Date(state.startWall + row.t * 1000);
     row.wallClock = fmtStamp(wall);
     row.clock = fmtClock(wall);
-    recorder.add(row);
+    // The pan map is compressed asynchronously; the row goes into the CSV once it is.
+    const full = row; // `row` becomes the trimmed copy below
+    recorder.addLater(full, encodePan(panSecond).then((code) => (full.panCode = code)));
+    // The charts and meters never use the per-band and spectrum data: keep it out of
+    // their 3600-row history.
+    const { bands, spectrumDb: _, ...rest } = row;
+    row = rest;
     state.exported = false;
     el.exportCsv.disabled = el.exportJson.disabled = false;
     checkAlerts(row);
@@ -214,7 +223,8 @@ function ingestSpectrum(f) {
   if (!panL || panL.length !== n) [panL, panR] = [new Float32Array(n), new Float32Array(n)];
   engine.analyserL.getFloatFrequencyData(panL);
   engine.analyserR.getFloatFrequencyData(panR);
-  panMap.update(panL, panR, sr, t);
+  panGrid.update(panL, panR, sr, t);
+  panMap.setGrid(panGrid.grid);
 }
 
 let lastTick = performance.now();
@@ -340,6 +350,7 @@ function beginSession() {
   log.clear();
   spectrum.clear();
   panMap.clear();
+  panGrid.reset();
   humView.reset();
   renderAlerts();
   resetReadouts();
@@ -526,11 +537,23 @@ function showMoment(row) {
   meters.renderRow(row);
   humView.renderRow(row);
   spectrum.showSaved(rows, i); // CSVs from 2026-10-31 on: spectrum bars, octave balance, coarse spectrogram
-  panMap.showSaved(row.pan); // and the pan map, from its per-band summary
+  showSavedPan(row); // and the pan map
   redrawCharts();
   timeline.setCursor(row.t);
   setText(el.playPos, xFormat(row.t, row));
   setText(el.elapsed, `position ${fmtDuration(row.t)}`);
+}
+
+// A CSV second's pan map is decoded (async) when first shown, then kept on the row.
+function showSavedPan(row) {
+  if (!row.panCode) return panMap.showSaved(null);
+  if (row.panGrid) return panMap.showSaved(row.panGrid);
+  decodePan(row.panCode)
+    .then((grid) => {
+      row.panGrid = grid;
+      if (state.lastRow === row) panMap.showSaved(grid); // unless the moment has moved on
+    })
+    .catch(() => panMap.showSaved(null));
 }
 
 function showFileResult(analysisSecs, moment = null) {
@@ -634,6 +657,7 @@ async function playFrom(t) {
   state.lastFrame = null;
   spectrum.clear();
   panMap.clear();
+  panGrid.reset();
   resetReadouts();
   redrawCharts();
   await engine.startFile(f.buffer, t);
@@ -754,7 +778,8 @@ document.querySelectorAll('.seg button').forEach((b) =>
     redrawCharts();
   }),
 );
-el.exportCsv.addEventListener('click', () => {
+el.exportCsv.addEventListener('click', async () => {
+  await recorder.later; // the last rows, still being finished (their pan maps are compressed)
   const f = state.mode === 'file' && state.file;
   download(exportName('csv'), f && f.csv ? csvHeader() + f.rows.map(csvRow).join('') : recorder.csv(), 'text/csv');
   state.exported = true;

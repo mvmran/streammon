@@ -11,10 +11,6 @@ export const OCTAVE_CENTRES = [31.25, 62.5, 125, 250, 500, 1000, 2000, 4000, 800
 export const SPECTRUM_FFT_SIZE = 8192;
 export const FINE_FFT_SIZE = 32768;
 
-// Their nominal names, as in the CSV column names.
-export const THIRD_OCTAVE_LABELS = ['25', '31.5', '40', '50', '63', '80', '100', '125', '160', '200', '250', '315', '400', '500', '630', '800', '1k', '1.25k', '1.6k', '2k', '2.5k', '3.15k', '4k', '5k', '6.3k', '8k', '10k', '12.5k', '16k'];
-export const OCTAVE_LABELS = ['31', '63', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
-
 // The 1/3-octave spectrum of each second, for the CSV: the power mean of the frames' levels
 // (one add() per 100 ms analyzer frame); take() returns it in dB and starts the next second
 // (null if no frame came).

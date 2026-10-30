@@ -250,11 +250,8 @@ describe('report', () => {
     assert.equal(h[0], 'wall_clock');
     // Newer columns only ever go at the end: the order of every earlier one is fixed.
     assert.deepEqual(h.slice(27, 32), ['stereo_detail', 'hum_pause_dbfs', 'fullscale_samples', 'integrated_s', 'hum_pause_readings'], 'new columns are added at the end');
-    // Then Stereo by band (10 octaves x 3) and the 1/3-octave spectrum (29 bands).
-    assert.deepEqual(h.slice(32, 35), ['sb_31_corr', 'sb_31_bal_db', 'sb_31_dbfs']);
-    assert.equal(h[32 + 30], 'spec_25_db');
-    assert.deepEqual(h.slice(32 + 30 + 29, 32 + 30 + 29 + 3), ['pan_25_dbfs', 'pan_25_pos', 'pan_25_width'], 'then the pan map summary');
-    assert.equal(h.length, 32 + 30 + 29 + 87);
+    // Then the charts' data, one encoded cell each.
+    assert.deepEqual(h.slice(32), ['stereo_bands', 'spectrum', 'pan_map']);
     assert.equal(line[h.indexOf('stereo_detail')], 'Out of phase: 2k, 4k');
     assert.equal(line[h.indexOf('stereo_status')], 'PHASE PROBLEM');
   });

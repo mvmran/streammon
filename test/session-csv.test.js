@@ -7,7 +7,8 @@ import { StreamAnalyzer } from '../src/dsp/analyzer.js';
 import { csvHeader, csvRow } from '../src/dsp/report.js';
 import { parseCsv, readSessionCsv, sessionEvents, sessionSummary, rowAt, stepRows } from '../src/dsp/session-csv.js';
 import { AlertMonitor, DEFAULT_ALERTS } from '../src/dsp/alerts.js';
-import { PanGrid, panSummary, gridFromSummary, PAN_COLS, PAN_ROWS } from '../src/dsp/pan.js';
+import { PanGrid, PAN_COLS, PAN_ROWS } from '../src/dsp/pan.js';
+import { encodeSpectrum, decodeSpectrum, encodeBands, decodeBands, encodePan, decodePan, SAFE_CODE, toBase64Url, fromBase64Url } from '../src/dsp/csv-codec.js';
 import { statusDetail } from '../src/ui/meters.js';
 
 const sr = 48000;
@@ -92,17 +93,6 @@ describe('session CSV', () => {
     assert.equal(rows[60].integratedSeconds, s.rows[60].integratedSeconds);
     assert.equal(rows[60].humPauseReadings, s.rows[60].humPauseReadings);
     assert.match(statusDetail(clipped), /^Hitting 0 dBFS: \d+ samples\/s$/);
-  });
-
-  test('Stereo by band and the spectrum come back (live rows have them)', () => {
-    const live = s.rows.map((r) => ({ ...r, spectrumDb: Array.from({ length: 29 }, (_, i) => -40 - i), bands: r.bands }));
-    const back = readSessionCsv(csvHeader() + live.map(csvRow).join('')).rows;
-    assert.deepEqual(back[20].spectrumDb.slice(0, 3), [-40, -41, -42]);
-    assert.equal(back[20].bands, null, 'no band readings in rows from file analysis');
-    const withBands = { ...s.rows[20], bands: [{ fc: 31.25, correlation: 0.987, balanceDb: -1.2, levelDb: -48.3 }, ...Array.from({ length: 9 }, (_, i) => ({ fc: 62.5 * 2 ** i, correlation: null, balanceDb: null, levelDb: -Infinity }))] };
-    const one = readSessionCsv(csvHeader() + csvRow(withBands)).rows[0];
-    assert.deepEqual(one.bands[0], { fc: 31.25, correlation: 0.987, balanceDb: -1.2, levelDb: -48.3 });
-    assert.equal(one.bands[5].levelDb, -Infinity);
   });
 
   test('arrow-key steps: by time, but always on to the next row, past gaps', () => {
@@ -197,7 +187,7 @@ describe('session CSV from file analysis and older versions', () => {
   });
 });
 
-describe('pan map summary', () => {
+describe('encoded chart data (stereo_bands, spectrum, pan_map)', () => {
   // A spectrum (dB per FFT bin) with energy in a few bins only: -30 dB, else silent.
   const spectrumWith = (bins, n = 4096) => {
     const x = new Float32Array(n).fill(-200);
@@ -205,48 +195,84 @@ describe('pan map summary', () => {
     return x;
   };
   const sr = 48000, binOf = (hz) => Math.round(hz / (sr / 2 / 4096));
+  const someBands = () => [{ fc: 31.25, correlation: 0.9993, balanceDb: -1.23, levelDb: -48.3 }, { fc: 62.5, correlation: null, balanceDb: null, levelDb: -Infinity }, ...Array.from({ length: 8 }, (_, i) => ({ fc: 125 * 2 ** i, correlation: -0.5 + i / 10, balanceDb: 12.5 - i, levelDb: -20 - i }))];
 
-  test('a source on one side reads there, with no spread; a centred one at 0', () => {
-    const g = new PanGrid();
-    const on = spectrumWith([binOf(1000)]), off = spectrumWith([]);
-    g.update(on, off, sr, 0.1); // 1 kHz on the left only
-    const left = g.summary()[16]; // the 1 kHz band
-    assert.ok(left.pos < -0.99 && left.width < 1e-6, JSON.stringify(left));
-    g.reset();
-    g.update(on, on, sr, 0.1);
-    const mid = g.summary()[16];
-    assert.ok(Math.abs(mid.pos) < 1e-6 && mid.width < 1e-6, JSON.stringify(mid));
-    assert.equal(g.summary()[5].levelDb, -Infinity, 'an empty band has no level');
-  });
-
-  test('sources on both sides: centred on average, but wide', () => {
-    const g = new PanGrid();
-    g.update(spectrumWith([binOf(1000)]), spectrumWith([binOf(1050)]), sr, 0.1);
-    const b = g.summary()[16];
-    assert.ok(Math.abs(b.pos) < 0.05 && b.width > 0.9, JSON.stringify(b));
-  });
-
-  test('a grid redrawn from the summary keeps each band\'s level and position', () => {
-    const grid = new Float64Array(PAN_ROWS * PAN_COLS);
-    grid[16 * PAN_COLS + 30] = 1e-4; // 1 kHz, right of centre
-    grid[10 * PAN_COLS + 20] = 2e-5; // 250 Hz, centre
-    const sum = panSummary(grid);
-    const back = panSummary(gridFromSummary(sum));
-    for (const row of [10, 16]) {
-      assert.ok(Math.abs(back[row].levelDb - sum[row].levelDb) < 1e-6);
-      assert.ok(Math.abs(back[row].pos - sum[row].pos) < 0.01, `${back[row].pos} vs ${sum[row].pos}`);
+  test('URL-safe base64 round trip, every length', () => {
+    for (let n = 0; n < 40; n++) {
+      const bytes = Uint8Array.from({ length: n }, (_, i) => (i * 97 + n) & 255);
+      assert.deepEqual(fromBase64Url(toBase64Url(bytes)), bytes);
     }
   });
 
-  test('it goes through the CSV and back', () => {
-    const grid = new Float64Array(PAN_ROWS * PAN_COLS);
-    grid[16 * PAN_COLS + 30] = 1e-4;
-    const pan = panSummary(grid);
-    const row = { t: 1, status: 'CLEAN', detectors: [], pan };
-    const back = readSessionCsv(csvHeader() + csvRow(row)).rows[0].pan;
-    assert.equal(back[16].pos, Number(pan[16].pos.toFixed(2)));
-    assert.equal(back[16].levelDb, Number(pan[16].levelDb.toFixed(1)));
-    assert.equal(back[5].levelDb, -Infinity);
-    assert.equal(readSessionCsv(csvHeader() + csvRow({ t: 1, status: 'CLEAN', detectors: [] })).rows[0].pan, null);
+  test('spectrum: 0.5 dB steps, silence kept', () => {
+    const levels = Array.from({ length: 29 }, (_, i) => -20 - i * 2.3);
+    levels[3] = -Infinity;
+    const back = decodeSpectrum(encodeSpectrum(levels));
+    levels.forEach((v, i) => assert.ok(v === -Infinity ? back[i] === -Infinity : Math.abs(back[i] - v) <= 0.25, `${i}: ${back[i]} vs ${v}`));
+    assert.deepEqual(decodeSpectrum(encodeSpectrum(back)), back, 'decoding and encoding again is exact');
+  });
+
+  test('Stereo by band: correlation to 1/32767, balance to 0.01 dB, gaps kept', () => {
+    const bands = someBands();
+    const back = decodeBands(encodeBands(bands));
+    assert.ok(Math.abs(back[0].correlation - 0.9993) < 4e-5 && Math.abs(back[0].balanceDb + 1.23) < 0.006);
+    assert.ok(Math.abs(back[0].levelDb + 48.3) <= 0.25);
+    assert.deepEqual([back[1].correlation, back[1].balanceDb, back[1].levelDb], [null, null, -Infinity]);
+    assert.equal(back[9].fc, 16000);
+  });
+
+  test('pan map: the full grid in 3 dB steps over 45 dB below each band\'s loudest cell', async () => {
+    const g = new PanGrid();
+    g.update(spectrumWith([binOf(1000), binOf(250)]), spectrumWith([binOf(1050), binOf(250)]), sr, 0);
+    const grid = g.takeSecond();
+    const back = await decodePan(await encodePan(grid));
+    for (let i = 0; i < grid.length; i++) {
+      const a = grid[i], b = back[i];
+      const top = Math.max(...grid.subarray(Math.floor(i / PAN_COLS) * PAN_COLS, (Math.floor(i / PAN_COLS) + 1) * PAN_COLS));
+      if (!(a > top * 10 ** -4.5)) assert.equal(b, 0, `cell ${i} more than 45 dB down`);
+      else assert.ok(Math.abs(10 * Math.log10(b / a)) <= 1.8, `cell ${i}: ${b} vs ${a}`);
+    }
+  });
+
+  test('every encoded value is spreadsheet-safe text, and the pan map stays small', async () => {
+    const g = new PanGrid();
+    // A busy stereo second: energy everywhere at different balances.
+    const l = Float32Array.from({ length: 4096 }, (_, b) => -40 - (b % 17)), r = Float32Array.from({ length: 4096 }, (_, b) => -40 - (b % 23));
+    for (let f = 0; f < 10; f++) g.update(l, r, sr, f / 10);
+    const codes = [encodeSpectrum(Array.from({ length: 29 }, () => -30)), encodeBands(someBands()), await encodePan(g.takeSecond())];
+    for (const c of codes) {
+      assert.match(c, SAFE_CODE);
+      assert.ok(!/^[=+\-@]/.test(c) && !Number.isFinite(Number(c)) && !/[,"\n\r]/.test(c), c.slice(0, 40));
+    }
+    assert.ok(codes[2].length < 2000, `pan map ${codes[2].length} characters`);
+  });
+
+  test('a CSV row carries them and reads them back', async () => {
+    const g = new PanGrid();
+    g.update(spectrumWith([binOf(1000)]), spectrumWith([]), sr, 0);
+    const row = { t: 1, status: 'CLEAN', detectors: [], bands: someBands(), spectrumDb: Array.from({ length: 29 }, (_, i) => -40 - i) };
+    row.panCode = await encodePan(g.takeSecond());
+    const back = readSessionCsv(csvHeader() + csvRow(row)).rows[0];
+    assert.equal(back.spectrumDb[2], -42);
+    assert.ok(Math.abs(back.bands[0].correlation - 0.9993) < 4e-5);
+    const grid = await decodePan(back.panCode);
+    const row1k = 16 * PAN_COLS;
+    assert.ok(grid[row1k] > 0 && grid.subarray(row1k + 1, row1k + PAN_COLS).every((v) => v === 0), 'left-only 1 kHz in its leftmost cell');
+    const none = readSessionCsv(csvHeader() + csvRow({ t: 1, status: 'CLEAN', detectors: [] })).rows[0];
+    assert.deepEqual([none.bands, none.spectrumDb, none.panCode], [null, null, null]);
+  });
+
+  test('the recorder keeps rows in order while their pan maps are encoded, and drops them after a clear', async () => {
+    const { SessionRecorder } = await import('../src/ui/session.js');
+    const rec = new SessionRecorder();
+    const slow = new Promise((r) => setTimeout(r, 30));
+    rec.addLater({ t: 1, status: 'CLEAN', detectors: [] }, slow);
+    rec.addLater({ t: 2, status: 'CLEAN', detectors: [] }, Promise.resolve());
+    await rec.later;
+    assert.deepEqual(rec.rows.map((l) => l.split(',')[1]), ['1.0', '2.0']);
+    rec.addLater({ t: 3, status: 'CLEAN', detectors: [] }, new Promise((r) => setTimeout(r, 10)));
+    rec.clear();
+    await rec.later;
+    assert.equal(rec.count, 0, 'a row finished after Reset belongs to the old session');
   });
 });

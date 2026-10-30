@@ -1,14 +1,13 @@
 // Pan vs frequency map: where the sound sits left to right (across) at each 1/3-octave
-// band (up), brighter for more energy. The data is a PanGrid (src/dsp/pan.js), fed from
-// separate left and right AnalyserNode spectra; display only. A saved CSV holds only each
-// band's summary (level, average position, spread), drawn as a bell (showSaved).
+// band (up), brighter for more energy. Draws a grid it is given: a PanGrid's (src/dsp/pan.js,
+// fed from separate left and right AnalyserNode spectra; display only) while live, or a
+// second decoded from a saved CSV's pan_map column.
 
 import { THIRD_OCTAVE_CENTRES } from '../dsp/bands.js';
 import { STEREO_RULES } from '../dsp/stereobands.js';
-import { PanGrid, PAN_COLS as COLS, PAN_ROWS as ROWS, PAN_F_LO as F_LO, PAN_F_HI as F_HI, rowDb, gridFromSummary } from '../dsp/pan.js';
-import { css, fmtDb, frameStep } from './format.js';
+import { PAN_COLS as COLS, PAN_ROWS as ROWS, PAN_F_LO as F_LO, PAN_F_HI as F_HI, PAN_EDGE as EDGE, rowDb, colPos } from '../dsp/pan.js';
+import { css, fmtDb } from './format.js';
 
-const EDGE = Math.pow(2, 1 / 6);
 const RANGE_DB = 45; // shown below the loudest cell (less hides diffuse orchestral bass)
 const BAL_MARKS = [3, 6, 10]; // 20 dB would fall inside the edge column
 // Rows (1/3 octaves) quieter than this are mostly the source's own noise, e.g. two mic
@@ -48,10 +47,8 @@ export class PanMapView {
     this.tooltip = document.getElementById('tooltip');
     this.cssHeight = Number(canvas.getAttribute('height')) || 260;
     this.lut = buildLut();
-    this.pan = new PanGrid();
-    this.grid = null; // what is drawn: the live grid, or one rebuilt from a CSV's summary
-    this.saved = false;
-    this.lastT = null; // audio-clock time of the latest frame (s)
+    this.grid = null; // energy per cell (row-major, row 0 = lowest band): live, or a CSV's
+    this.saved = false; // the grid is a saved CSV's second
     this.img = document.createElement('canvas');
     this.img.width = COLS;
     this.img.height = ROWS;
@@ -87,38 +84,27 @@ export class PanMapView {
   }
 
   clear() {
-    this.pan.reset();
     this.grid = null;
     this.saved = false;
-    this.lastT = null;
     this.draw();
   }
 
-  // Each band's level, average position and spread now, for the CSV row (null before data).
-  summary() {
-    return this.saved ? null : this.pan.summary();
-  }
-
-  // A saved CSV's second: its per-band summary (row.pan), each band drawn as a bell around
-  // its average position, as wide as its spread.
-  showSaved(summary) {
-    if (!summary) {
-      if (this.grid) this.clear();
-      return;
-    }
-    this.saved = true;
-    this.grid = gridFromSummary(summary);
+  // The live grid (a PanGrid's, or the extension's offscreen document's), drawn on the
+  // next render().
+  setGrid(grid) {
+    this.grid = grid;
+    this.saved = false;
     this.dirty = true;
   }
 
-  // left, right: dB per FFT bin (AnalyserNode.getFloatFrequencyData) for each channel;
-  // t: the analyzer frame's audio-clock time (s), which times the average.
-  update(left, right, sampleRate, t) {
-    const dt = frameStep(this.lastT, t);
-    this.lastT = t;
-    this.pan.update(left, right, sampleRate, dt);
-    this.saved = false;
-    this.grid = this.pan.grid;
+  // A saved CSV's second (decoded from its pan_map column), or null for none.
+  showSaved(grid) {
+    if (!grid) {
+      if (this.grid) this.clear();
+      return;
+    }
+    this.grid = grid;
+    this.saved = true;
     this.dirty = true;
   }
 
@@ -251,11 +237,11 @@ export class PanMapView {
     tip.className = 'tooltip';
     tip.innerHTML = [
       `<div class="k">${fmtHz(fc / EDGE)} – ${fmtHz(fc * EDGE)}</div>`,
-      r('Position', side ? `${side} ${EDGE_DB} dB or more` : fmtBalance(posDb((col / (COLS - 1)) * 2 - 1))),
+      r('Position', side ? `${side} ${EDGE_DB} dB or more` : fmtBalance(posDb(colPos(col)))),
       r('Cell', v > 0 ? `${fmtDb(10 * Math.log10(v))} dB` : '--'),
       r('Band level', Number.isFinite(band) ? `${fmtDb(band)} dBFS` : '--'),
       band < ROW_FLOOR_DB ? `<div class="k">Too quiet to place: mostly noise</div>` : '',
-      this.saved ? `<div class="k small">from the CSV: the band's average position and spread</div>` : '',
+      this.saved ? `<div class="k small">from the CSV (cells in 3 dB steps)</div>` : '',
     ].join('');
     tip.hidden = false;
     const tw = tip.offsetWidth;

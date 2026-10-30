@@ -3,7 +3,7 @@
 
 import { csvHeader, csvRow } from '../dsp/report.js';
 
-const MAX_ROWS = 12 * 3600; // 12 hours of 1-second rows (~42 MB of text with the band, spectrum and pan columns)
+const MAX_ROWS = 12 * 3600; // 12 hours of 1-second rows (up to ~36 MB of text with the encoded chart columns)
 
 export class SessionRecorder {
   static COMMIT_MS = 15000; // how often rows recorded to disk reach the file
@@ -17,11 +17,27 @@ export class SessionRecorder {
     this.queue = Promise.resolve();
     this.fileName = null;
     this.onDiskError = null; // (error, fileName) when writing to disk fails and stops
+    this.later = Promise.resolve(); // rows waiting to be finished (addLater), in order
+    this.generation = 0; // bumped by clear(): rows finished after it belong to the old session
   }
 
   clear() {
     this.rows = [];
     this.dropped = 0;
+    this.generation++;
+  }
+
+  // A row finished asynchronously (its pan map is compressed): added once `ready` settles,
+  // in order with the rows before it, unless the session was cleared meanwhile.
+  addLater(row, ready) {
+    const generation = this.generation;
+    this.later = this.later
+      .then(() => ready)
+      .catch(() => {}) // a failed encoding leaves that cell empty, not the row out
+      .then(() => {
+        if (this.generation === generation) this.add(row);
+      });
+    return this.later;
   }
 
   get count() {
@@ -107,6 +123,7 @@ export class SessionRecorder {
 
   async stopDisk() {
     if (!this.handle) return;
+    await this.later; // the last rows, still being finished
     await this.commit();
     this.detach();
   }
