@@ -2,11 +2,11 @@
 // frequency axis, and octave balance. Fed from an AnalyserNode, which is fine for
 // display (measurements use raw samples).
 
-import { thirdOctaveLevels, THIRD_OCTAVE_CENTRES, bandLevels, OCTAVE_CENTRES } from '../dsp/bands.js';
+import { thirdOctaveLevels, THIRD_OCTAVE_CENTRES, bandLevels, OCTAVE_CENTRES, SPECTRUM_FFT_SIZE, FINE_FFT_SIZE } from '../dsp/bands.js';
 import { css, fmtDb, frameStep } from './format.js';
 
 const DB_MIN = -100;
-const SAVED_ROW_PX = 4; // a saved CSV's spectrogram: pixel rows per second (about 2 min shown)
+const SAVED_ROW_PX = 4; // a saved CSV's spectrogram: CSS pixel rows per second (about 2 min shown)
 const BASE_HZ = 1000; // 1/3-octave band k is centred on 1000 · 2^((k − 16) / 3) Hz
 // Below this the bars, the octave balance and the spectrogram use the finer spectrum
 // (engine.analyserFine) when there is one.
@@ -235,12 +235,14 @@ export class SpectrumView {
     }
     const r = (sg.head - k + sg.rows) % sg.rows;
     const v = sg.vals[r * sg.cols + x];
-    const db = this.sgFloor + (v / 255) * (DB_MAX - this.sgFloor);
+    // A saved CSV's pixel is its band's level spread over the band's bins: add that back.
+    const off = this.saved && sg.offsetDb ? sg.offsetDb[x] : 0;
+    const db = this.sgFloor + (v / 255) * (DB_MAX - this.sgFloor) + off;
     const age = sg.times[sg.head] - sg.times[r];
     this.showTip([
       `<div class="k">${fmtHz(axisFreq((x + 0.5) / sg.cols))}</div>`,
       tipRow('Time', k === 0 ? 'newest row' : `${fmtDb(-age)} s`),
-      tipRow('Level', v === 0 ? `≤ ${fmtDb(this.sgFloor, 0)} dB` : `${fmtDb(db)} dB`),
+      tipRow('Level', v === 0 ? `≤ ${fmtDb(this.sgFloor + off, 0)} dB` : `${fmtDb(db)} dB`),
       `<div class="k small">${this.saved ? 'its 1/3-octave band, from the CSV' : 'loudest FFT bin in this pixel'}</div>`,
     ], e);
   }
@@ -266,6 +268,8 @@ export class SpectrumView {
 
   clear() {
     this.saved = false; // showing a saved CSV's second (showSaved), not live audio
+    this.savedAt = null; // { rows, i } waiting to be painted by render()
+    if (this.sg) this.sg.offsetDb = null;
     this.octPower = null;
     this.balanceDb = null;
     this.balanceAge = 0; // the first readings wait for half a second of the new average
@@ -321,7 +325,11 @@ export class SpectrumView {
   // of the seconds before it, SAVED_ROW_PX pixel rows per second, each band one flat colour.
   showSaved(rows, i) {
     const row = rows[i];
-    if (!row || !row.spectrumDb) return this.clear();
+    if (!row || !row.spectrumDb) {
+      // An older CSV: nothing to show, and nothing to repaint once cleared.
+      if (this.saved || this.levels || (this.sg && this.sg.count)) this.clear();
+      return;
+    }
     this.saved = true;
     this.levels = row.spectrumDb.map((v) => (v === null ? -Infinity : v));
     const n = this.levels.length;
@@ -338,30 +346,38 @@ export class SpectrumView {
     this.octPower = OCTAVE_CENTRES.map((_, j) => this.thirdPower.slice(3 * j, 3 * j + 3).reduce((a, b) => a + b, 0));
     const ref = 10 * Math.log10(this.octPower[OCTAVE_CENTRES.indexOf(500)]);
     this.balanceDb = this.balanceRows.map((r, j) => 10 * Math.log10(this.octPower[j]) - ref);
-    this.renderBalance();
-    this.paintSaved(rows, i);
+    this.balanceDirty = true;
+    // Painted in render(), at most once per UI tick however fast the scrubbing.
+    this.savedAt = { rows, i };
     this.dirty = true;
   }
 
   // The coarse spectrogram for showSaved. A band level is the sum over its FFT bins, so it is
-  // spread back over them (as if an 8192-point FFT at 48 kHz; 32768-point below
-  // FINE_MAX_HZ) to land near the live picture's colours.
+  // spread back over them to land near the live picture's colours: the bins of the analyser
+  // bandLevels took it from (the finer one for bands ending below its last bin, just past
+  // FINE_MAX_HZ), at 48 kHz (the CSV doesn't say). sg.offsetDb keeps that per column for
+  // the tooltip.
   paintSaved(rows, i) {
     const sg = this.sg;
     if (!sg) return;
     const half = Math.pow(2, 1 / 6);
-    const perBin = THIRD_OCTAVE_CENTRES.map((fc) => 10 * Math.log10(Math.max(1, (fc * (half - 1 / half)) / (fc <= FINE_MAX_HZ ? 48000 / 32768 : 48000 / 8192))));
+    const sr = 48000;
+    const fineBin = sr / FINE_FFT_SIZE, mainBin = sr / SPECTRUM_FFT_SIZE;
+    const fineMaxHz = (Math.ceil(FINE_MAX_HZ / fineBin) + 1) * fineBin; // as readFine returns
+    const perBin = THIRD_OCTAVE_CENTRES.map((fc) => 10 * Math.log10(Math.max(1, (fc * (half - 1 / half)) / (fc * half <= fineMaxHz ? fineBin : mainBin))));
+    const rowPx = Math.max(1, Math.round(SAVED_ROW_PX * sg.dpr));
     const band = new Int32Array(sg.cols);
     for (let x = 0; x < sg.cols; x++) {
       const f = axisFreq((x + 0.5) / sg.cols);
       band[x] = Math.max(0, Math.min(THIRD_OCTAVE_CENTRES.length - 1, Math.round(3 * Math.log2(f / BASE_HZ)) + 16));
     }
-    sg.count = Math.min(sg.rows, (i + 1) * SAVED_ROW_PX);
+    sg.offsetDb = Float32Array.from(band, (b) => perBin[b]);
+    sg.count = Math.min(sg.rows, (i + 1) * rowPx);
     sg.head = 0;
     for (let k = 0; k < sg.count; k++) {
-      const r = rows[i - Math.floor(k / SAVED_ROW_PX)];
+      const r = rows[i - Math.floor(k / rowPx)];
       const at = (sg.rows - k) % sg.rows;
-      sg.times[at] = r.t - (k % SAVED_ROW_PX) / SAVED_ROW_PX;
+      sg.times[at] = r.t - (k % rowPx) / rowPx;
       const base = at * sg.cols;
       for (let x = 0; x < sg.cols; x++) {
         const v = r.spectrumDb ? r.spectrumDb[band[x]] : null;
@@ -376,6 +392,10 @@ export class SpectrumView {
   render() {
     if (!this.dirty) return;
     this.dirty = false;
+    if (this.savedAt) {
+      this.paintSaved(this.savedAt.rows, this.savedAt.i);
+      this.savedAt = null;
+    }
     if (this.balanceDirty) this.renderBalance();
     this.drawBands();
     this.drawSpectrogram();
@@ -534,7 +554,8 @@ export class SpectrumView {
       ctx.moveTo(PLOT_L - 3, y);
       ctx.lineTo(PLOT_L, y);
       ctx.stroke();
-      ctx.fillText(next >= 60 ? `−${next / 60} min` : `−${next} s`, PLOT_L - 5, y);
+      // Live labels stay in seconds (−5 s … −90 s on HiDPI); a saved CSV's run 30 s apart.
+      ctx.fillText(this.saved && next % 60 === 0 ? `−${next / 60} min` : `−${next} s`, PLOT_L - 5, y);
       next = Math.floor(age / step) * step + step;
     }
   }
@@ -589,7 +610,12 @@ export class SpectrumView {
     if (!this.balanceDb) return;
     this.balanceRows.forEach((r, i) => {
       const d = this.balanceDb[i];
-      if (!Number.isFinite(d)) return;
+      if (!Number.isFinite(d)) {
+        // Silent (−∞, e.g. digital silence before a service): no reading, not the last one.
+        r.bar.style.width = '0';
+        r.v.textContent = '--';
+        return;
+      }
       const c = Math.max(-24, Math.min(24, d));
       const pct = (Math.abs(c) / 24) * 50;
       r.bar.style.left = c >= 0 ? '50%' : `${50 - pct}%`;

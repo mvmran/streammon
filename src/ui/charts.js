@@ -12,7 +12,7 @@ export class TimeChart {
   //         right: { min, max, step, unit, span: [from, to] } (a second scale on the right for
   //         axis: 'right' series, over the [from, to] fraction of the plot height, 0 = bottom), band: { from, to, label },
   //         refs: (chart) => [{ y, label, dash }], statusStrip, statusKey, statusColours,
-  //         statusFaint, xFormat(t), onClick(t), onScrub(t), unit }
+  //         statusFaint, xFormat(t), onClick(t), onScrub(t), canScrub(), unit }
   // onScrub(t) is called while the pointer is held down and dragged across the plot (once
   // per animation frame at most), and on pressing.
   constructor(canvas, opts) {
@@ -35,30 +35,37 @@ export class TimeChart {
       this.draw();
     });
     if (opts.onClick) canvas.addEventListener('click', (e) => opts.onClick(this.tAt(e)));
-    if (opts.onScrub) this.addScrub(opts.onScrub);
+    if (opts.onScrub) this.addScrub(opts.onScrub, opts.canScrub);
     this.resize();
   }
 
-  addScrub(onScrub) {
+  // canScrub(): whether a press should scrub now (a saved CSV), so audio files keep plain
+  // clicks: capturing the pointer would also turn a drag released off the canvas into a
+  // click on it.
+  addScrub(onScrub, canScrub = () => true) {
     const canvas = this.canvas;
     canvas.style.touchAction = 'pan-y'; // a horizontal drag scrubs; a vertical one still scrolls
     let held = false, t = 0, frame = 0;
     const fire = () => {
       frame = 0;
-      onScrub(t);
+      if (held) onScrub(t);
     };
     const scrub = (e) => {
       t = this.tAt(e);
       if (!frame) frame = requestAnimationFrame(fire);
     };
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || !canScrub()) return;
       held = true;
       canvas.setPointerCapture(e.pointerId); // keeps scrubbing past the plot's edges
       scrub(e);
     });
-    canvas.addEventListener('pointermove', (e) => held && scrub(e));
-    for (const type of ['pointerup', 'pointercancel']) canvas.addEventListener(type, () => (held = false));
+    // Only while the button is still down: a release can go missing (Alt+Tab mid-drag).
+    canvas.addEventListener('pointermove', (e) => {
+      if (held && e.buttons & 1) scrub(e);
+      else held = false;
+    });
+    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) canvas.addEventListener(type, () => (held = false));
   }
 
   addLegend() {

@@ -65,6 +65,7 @@ export class StreamAnalyzer {
     if (this.bandStereo) this.bandStereo.reset();
     if (this.stereoStatus) this.stereoStatus.reset();
     this.lastStereo = null;
+    this.lastBands = null; // Stereo by band of the latest frame
     this.crest.reset();
     this.hum.reset();
     this.humFrom = 0; // session time the hum detector last (re)started at
@@ -153,6 +154,7 @@ export class StreamAnalyzer {
     if (this.onFrame) {
       const stereo = this.stereo.current;
       const bands = this.bandStereo.current;
+      this.lastBands = bands; // the second's row reuses the last frame's (the same 1 s window)
       const judged = this.bandStereo.over(STEREO_RULES.windowFrames);
       this.lastStereo = this.stereoStatus.update(judged, stereo.mono, this.stereo.balanceDb, this.deadSide());
       this.onFrame({
@@ -235,7 +237,7 @@ export class StreamAnalyzer {
       humPauseHz: this.secPause ? this.secPause.lines.map((k) => k * this.hum.opt.mainsFrequencyHz) : null,
       humPauseReadings: this.secPauseCount,
       // Stereo by band over this second (live only: the file worker has no band filters).
-      bands: this.bandStereo ? this.bandStereo.current : null,
+      bands: this.lastBands,
     };
     this.s = { peak: 0, tp: 0 };
     // The file worker has no StereoStatus: there no status means ordinary stereo.

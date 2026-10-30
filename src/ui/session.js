@@ -3,7 +3,7 @@
 
 import { csvHeader, csvRow } from '../dsp/report.js';
 
-const MAX_ROWS = 12 * 3600; // 12 hours of 1-second rows (~4 MB of text)
+const MAX_ROWS = 12 * 3600; // 12 hours of 1-second rows (~22 MB of text with the band and spectrum columns)
 
 export class SessionRecorder {
   static COMMIT_MS = 15000; // how often rows recorded to disk reach the file

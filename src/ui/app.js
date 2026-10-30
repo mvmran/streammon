@@ -5,7 +5,7 @@ import { listInputDevices, devicesHaveLabels, openInputDevice, openTabCapture, s
 import { AlertMonitor, ALERT_LABELS, humOptionsFrom } from '../dsp/alerts.js';
 import { isolateHum } from '../dsp/hum-isolate.js';
 import { summaryJson, csvHeader, csvRow } from '../dsp/report.js';
-import { readSessionCsv, sessionEvents, sessionSummary, rowAt } from '../dsp/session-csv.js';
+import { readSessionCsv, sessionEvents, sessionSummary, rowAt, stepRows } from '../dsp/session-csv.js';
 import { SpectrumSecond } from '../dsp/bands.js';
 import { TimeChart } from './charts.js';
 import { SpectrumView } from './spectrum.js';
@@ -91,6 +91,7 @@ state.alertCfg = setupSettings($('settings'), $('settings-btn'), (cfg) => {
   if (humChanged) engine.setHumOptions(humOptionsFrom(cfg));
   humView.renderMains();
   spectrum.setSpectrogramFloor(cfg.display.spectrogramFloorDb);
+  redrawCharts(); // the peak chart's true-peak limit line
   renderAlerts();
   // A loaded file was analysed with the old mains frequency: analyse it again. A CSV's log
   // is rebuilt with the new hum alert level, on the same moment.
@@ -411,7 +412,8 @@ function createTimeline() {
     xFormat,
     onClick: (t) => seekFile(t),
     // A saved CSV: dragging along the timeline updates the readings as it goes.
-    onScrub: (t) => state.file && state.file.csv && showMoment(timeline.nearest(t)),
+    onScrub: (t) => showMoment(timeline.nearest(t)),
+    canScrub: () => !!(state.mode === 'file' && state.file && state.file.csv),
   });
   el.fileResult.hidden = true;
 }
@@ -489,6 +491,7 @@ async function openCsv(file) {
     state.file = { name: file.name, source: file, csv: true, rows, startWall, fileAnalysis, summary: sessionSummary(rows) };
     state.file.events = csvEvents(state.file);
     showFileResult(0);
+    if (document.activeElement === el.source) el.source.blur(); // so ← → step, not switch the source
   } catch (e) {
     if (!job.signal.aborted) showError(`Could not read ${file.name}: ${describeError(e)}`);
   } finally {
@@ -512,7 +515,8 @@ function seekFile(t, fromLog = false) {
 // A CSV: the readings of one row, and the charts' last range up to it.
 function showMoment(row) {
   const rows = state.file.rows;
-  if (!row) return;
+  if (!row || row === state.lastRow) return; // e.g. the click that ends a scrub
+
   const i = rows.indexOf(row);
   state.history = rows.slice(Math.max(0, i + 1 - HISTORY_MAX), i + 1);
   state.lastRow = row;
@@ -714,17 +718,26 @@ el.dropzone.addEventListener('drop', (e) => {
 });
 // A saved CSV: ←/→ step a second, with Shift 10 s, with Ctrl a minute; holding the key
 // keeps going. Not while typing in a field or with the settings open.
+// Steps are added up and shown once per animation frame, so a held key can't queue more
+// work than the screen can draw (and stops when it is let go).
 const SCRUB_KEYS = { ArrowLeft: -1, ArrowRight: 1 };
+let keyRow = null, keyFrame = 0; // index of the row the pressed keys have reached
 window.addEventListener('keydown', (e) => {
   const dir = SCRUB_KEYS[e.key];
   const f = state.file;
   if (!dir || state.mode !== 'file' || !f || !f.csv || e.altKey || e.metaKey) return;
-  // (The file chooser keeps the focus after a file is picked: that one doesn't count.)
-  if (e.target instanceof Element && e.target.closest('input:not([type=file]), select, textarea, dialog, [contenteditable]')) return;
+  // The file chooser keeps the focus after a file is picked, and the Source menu after
+  // choosing File: those don't count (in the menu, ← would switch the source).
+  if (e.target instanceof Element && e.target.closest('input:not([type=file]), select:not(#source), textarea, dialog, [contenteditable]')) return;
   e.preventDefault();
   const step = e.ctrlKey ? 60 : e.shiftKey ? 10 : 1;
-  const from = state.lastRow ? state.lastRow.t : 0;
-  showMoment(timeline.nearest(from + dir * step));
+  const from = keyRow ?? Math.max(0, f.rows.indexOf(state.lastRow));
+  keyRow = stepRows(f.rows, from, dir * step);
+  keyFrame ||= requestAnimationFrame(() => {
+    keyFrame = 0;
+    if (state.file === f && keyRow !== null) showMoment(f.rows[keyRow]);
+    keyRow = null;
+  });
 });
 // Dropping anywhere on the page in file mode loads the file rather than navigating away.
 window.addEventListener('dragover', (e) => e.preventDefault());

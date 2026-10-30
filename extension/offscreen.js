@@ -80,6 +80,11 @@ function onSecond(row) {
   row.spectrumDb = spectrumSecond.take();
   recorder.add(row);
   s.lastRow = row;
+  // The views draw charts and meters from rows, never the per-band and spectrum columns
+  // (only the CSV has those): keep them out of the history and the messages, so a view's
+  // snapshot doesn't carry 3600 rows of them.
+  const { bands, spectrumDb, ...view } = row;
+  row = view;
   s.history.push(row);
   if (s.history.length > HISTORY_MAX) s.history.shift();
   broadcast({ type: 'row', row });

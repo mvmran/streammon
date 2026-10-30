@@ -3,3 +3,6 @@ dist/
 test/e2e-output/
 # Service recordings used by the tests: kept local (may contain copyrighted music).
 test-audio/
+
+# Screenshots belong in test/e2e-output/ (ignored above), never the project root.
+/*.png

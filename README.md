@@ -85,7 +85,8 @@ charts. The **←** and **→** keys step one second (**Shift**: 10 s, **Ctrl**:
 hold one down to keep going.
 
 CSVs recorded live from 31 October 2026 also hold each second's **Stereo by band** readings
-and **⅓-octave spectrum** (about 3 KB a minute more), so Stereo by band, the spectrum bars,
+and **⅓-octave spectrum** (about 20 KB a minute more: a 2-hour service is about 3.6 MB
+instead of 1.2 MB), so Stereo by band, the spectrum bars,
 the Octave balance and a coarse spectrogram (one band per colour, about the last 2 minutes)
 follow along too. A CSV holds one row of readings per second, so there is no audio, pan map
 or hum harmonics, and integrated-loudness resets are only in the JSON export. CSVs from

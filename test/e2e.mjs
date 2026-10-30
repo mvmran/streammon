@@ -137,12 +137,19 @@ async function main() {
     // Arrow keys step a second, with Shift 10 s.
     const secs = async () => Number((await page.textContent('#play-pos')).match(/(\d+):(\d\d)$/).slice(1).reduce((m, x) => m * 60 + Number(x), 0));
     const k0 = await secs();
-    await page.focus('#file-input'); // where the focus is after picking a file
+    await page.focus('#source'); // the Source menu, still focused after choosing File
     await page.keyboard.press('ArrowLeft');
+    check((await page.inputValue('#source')) === 'file', `← doesn't switch the Source menu (${await page.inputValue('#source')})`);
+    await page.focus('#file-input'); // where the focus is after picking a file
+    await page.waitForTimeout(100);
+    const kStart = await secs();
+    await page.keyboard.press('ArrowLeft');
+    await page.waitForTimeout(100); // steps are shown on the next animation frame
     const k1 = await secs();
     await page.keyboard.press('Shift+ArrowLeft');
+    await page.waitForTimeout(100);
     const k2 = await secs();
-    check(k1 === k0 - 1 && k2 === k1 - 10, `← steps 1 s, Shift+← 10 s (${k0} → ${k1} → ${k2} s)`);
+    check(kStart === k0 - 1 && k1 === kStart - 1 && k2 === k1 - 10, `← steps 1 s, Shift+← 10 s (${k0} → ${kStart} → ${k1} → ${k2} s)`);
     await page.locator('#log-body tr', { hasText: 'Mains hum detected' }).first().click();
     await page.waitForTimeout(200);
     check((await page.textContent('#hum-status-text')) === 'PRESENT', `clicking "Mains hum detected" shows a second with hum (${await page.textContent('#play-pos')})`);

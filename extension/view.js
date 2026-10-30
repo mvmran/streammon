@@ -40,6 +40,7 @@ window.addEventListener('storage', () => {
   state.cfg = loadAlertConfig();
   humView.renderMains();
   if (spectrum) spectrum.setSpectrogramFloor(state.cfg.display.spectrogramFloorDb);
+  redraw(); // the peak chart's true-peak limit line
 });
 
 const meters = new MetersView(() => state.cfg);

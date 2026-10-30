@@ -1,6 +1,8 @@
 // The live audio graph: source -> analyzer worklet (+ AnalyserNode for the spectrum).
 // Also plays files back through the same graph so meters run during playback.
 
+import { SPECTRUM_FFT_SIZE, FINE_FFT_SIZE } from '../dsp/bands.js';
+
 const WORKLET_URL = new URL('./analyzer-worklet.js', import.meta.url);
 const FILE_WORKER_URL = new URL('./file-worker.js', import.meta.url);
 
@@ -42,18 +44,18 @@ export class AudioEngine {
     // The worklet must reach the destination to be pulled; keep it silent.
     this.mute = new GainNode(this.ctx, { gain: 0 });
     this.node.connect(this.mute).connect(this.ctx.destination);
-    this.analyser = new AnalyserNode(this.ctx, { fftSize: 8192, smoothingTimeConstant: 0.5, minDecibels: -110, maxDecibels: 0 });
+    this.analyser = new AnalyserNode(this.ctx, { fftSize: SPECTRUM_FFT_SIZE, smoothingTimeConstant: 0.5, minDecibels: -110, maxDecibels: 0 });
     // A finer spectrum for the bottom of the display (below FINE_MAX_HZ in spectrum.js):
     // 1.5 Hz bins at 48 kHz, so a bass note or mains hum stays on its own frequency.
-    this.analyserFine = new AnalyserNode(this.ctx, { fftSize: 32768, smoothingTimeConstant: 0.5, minDecibels: -110, maxDecibels: 0 });
+    this.analyserFine = new AnalyserNode(this.ctx, { fftSize: FINE_FFT_SIZE, smoothingTimeConstant: 0.5, minDecibels: -110, maxDecibels: 0 });
     this.input = new GainNode(this.ctx, { gain: 1, channelCount: 2, channelCountMode: 'explicit' });
     this.input.connect(this.node);
     this.input.connect(this.analyser);
     this.input.connect(this.analyserFine);
     // Left and right spectra for the pan map (display only).
     this.splitter = new ChannelSplitterNode(this.ctx, { numberOfOutputs: 2 });
-    this.analyserL = new AnalyserNode(this.ctx, { fftSize: 8192, smoothingTimeConstant: 0.5, minDecibels: -110, maxDecibels: 0 });
-    this.analyserR = new AnalyserNode(this.ctx, { fftSize: 8192, smoothingTimeConstant: 0.5, minDecibels: -110, maxDecibels: 0 });
+    this.analyserL = new AnalyserNode(this.ctx, { fftSize: SPECTRUM_FFT_SIZE, smoothingTimeConstant: 0.5, minDecibels: -110, maxDecibels: 0 });
+    this.analyserR = new AnalyserNode(this.ctx, { fftSize: SPECTRUM_FFT_SIZE, smoothingTimeConstant: 0.5, minDecibels: -110, maxDecibels: 0 });
     this.input.connect(this.splitter);
     this.splitter.connect(this.analyserL, 0);
     this.splitter.connect(this.analyserR, 1);

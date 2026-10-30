@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { programme, hardClip, speechLike, addHum } from './synthetic.js';
 import { StreamAnalyzer } from '../src/dsp/analyzer.js';
 import { csvHeader, csvRow } from '../src/dsp/report.js';
-import { parseCsv, readSessionCsv, sessionEvents, sessionSummary, rowAt } from '../src/dsp/session-csv.js';
+import { parseCsv, readSessionCsv, sessionEvents, sessionSummary, rowAt, stepRows } from '../src/dsp/session-csv.js';
 import { AlertMonitor, DEFAULT_ALERTS } from '../src/dsp/alerts.js';
 import { statusDetail } from '../src/ui/meters.js';
 
@@ -102,6 +102,17 @@ describe('session CSV', () => {
     const one = readSessionCsv(csvHeader() + csvRow(withBands)).rows[0];
     assert.deepEqual(one.bands[0], { fc: 31.25, correlation: 0.987, balanceDb: -1.2, levelDb: -48.3 });
     assert.equal(one.bands[5].levelDb, -Infinity);
+  });
+
+  test('arrow-key steps: by time, but always on to the next row, past gaps', () => {
+    const rs = [1, 2, 3, 100, 101, 102, 200].map((t) => ({ t }));
+    assert.equal(stepRows(rs, 0, 1), 1);
+    assert.equal(stepRows(rs, 2, 1), 3, 'over the gap from 3 to 100');
+    assert.equal(stepRows(rs, 2, 10), 3);
+    assert.equal(stepRows(rs, 3, -1), 2, 'back over it');
+    assert.equal(stepRows(rs, 0, 60), 3);
+    assert.equal(stepRows(rs, 6, 10), 6, 'stays on the last row');
+    assert.equal(stepRows(rs, 0, -10), 0, 'and the first');
   });
 
   test('a log entry is shown at the second it happened in', () => {

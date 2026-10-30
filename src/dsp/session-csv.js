@@ -151,6 +151,21 @@ export function rowAt(rows, t) {
   return rows[lo];
 }
 
+// The row about `seconds` (±) away from rows[i]: the first at or past that time going
+// forward, the last at or before it going back, and always at least the next row, so a
+// gap in the rows (some deleted in a spreadsheet) doesn't stop the stepping. Its index.
+export function stepRows(rows, i, seconds) {
+  const target = rows[i].t + seconds;
+  let lo = 0, hi = rows.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (seconds > 0 ? rows[mid].t < target : rows[mid].t <= target) lo = mid + 1;
+    else hi = mid;
+  }
+  const j = seconds > 0 ? Math.max(lo, i + 1) : Math.min(lo - 1, i - 1);
+  return Math.max(0, Math.min(rows.length - 1, j));
+}
+
 // Session totals from the rows, in the shape of StreamAnalyzer.summary() (what the file
 // summary line shows). Integrated loudness and LRA are the last row's (since the last
 // integrated reset, if there was one); peaks are the highest of any second.
