@@ -4,8 +4,8 @@ import { AudioEngine, analyseBuffer } from '../audio/engine.js';
 import { listInputDevices, devicesHaveLabels, openInputDevice, openTabCapture, streamSampleRate, decodeFile } from '../audio/sources.js';
 import { AlertMonitor, ALERT_LABELS, humOptionsFrom } from '../dsp/alerts.js';
 import { isolateHum } from '../dsp/hum-isolate.js';
-import { summaryJson } from '../dsp/report.js';
-import { readSessionCsv, sessionEvents, sessionSummary } from '../dsp/session-csv.js';
+import { summaryJson, csvHeader, csvRow } from '../dsp/report.js';
+import { readSessionCsv, sessionEvents, sessionSummary, rowAt } from '../dsp/session-csv.js';
 import { TimeChart } from './charts.js';
 import { SpectrumView } from './spectrum.js';
 import { PanMapView } from './pan-map.js';
@@ -91,13 +91,18 @@ state.alertCfg = setupSettings($('settings'), $('settings-btn'), (cfg) => {
   humView.renderMains();
   spectrum.setSpectrogramFloor(cfg.display.spectrogramFloorDb);
   renderAlerts();
-  // A loaded file was analysed with the old mains frequency: analyse it again.
-  if (mainsChanged && state.mode === 'file' && state.file) handleFile(state.file.source);
+  // A loaded file was analysed with the old mains frequency: analyse it again. A CSV's log
+  // is rebuilt with the new hum alert level, on the same moment.
+  if (state.mode === 'file' && state.file && state.file.csv) {
+    const at = state.lastRow;
+    state.file.events = csvEvents(state.file);
+    showFileResult(0, at);
+  } else if (mainsChanged && state.mode === 'file' && state.file) handleFile(state.file.source);
 });
 state.alerts = new AlertMonitor(state.alertCfg);
 engine.setHumOptions(humOptionsFrom(state.alertCfg));
 
-const log = new EventLog($('log-body'), $('log-empty'), { onSeek: (t) => state.mode === 'file' && seekFile(t) });
+const log = new EventLog($('log-body'), $('log-empty'), { onSeek: (t) => state.mode === 'file' && seekFile(t, true) });
 const recorder = new SessionRecorder();
 recorder.onDiskError = (e, name) => {
   updateRecordButton();
@@ -397,7 +402,7 @@ function createTimeline() {
     band: { from: -16, to: -12, label: 'target' },
     refs: () => [{ y: -10, label: '−10 LUFS', colour: '--serious' }],
     statusStrip: true,
-    xFormat: (t, row) => (row ? (row.clock ? `${row.clock} · ${fmtDuration(t)}` : `File ${fmtDuration(t)}`) : fmtDuration(t)),
+    xFormat,
     onClick: (t) => seekFile(t),
   });
   el.fileResult.hidden = true;
@@ -462,6 +467,7 @@ async function handleFile(file) {
 // current settings, and its totals. No audio, so clicks show a moment instead of playing.
 async function openCsv(file) {
   cancelFileAnalysis();
+  const job = (fileJob = new AbortController()); // a live start or another file cancels it
   if (state.running) await stopLive();
   state.playing = false;
   await engine.close();
@@ -469,32 +475,38 @@ async function openCsv(file) {
   showError('');
   el.fileResult.hidden = true;
   try {
-    const { rows, startWall } = readSessionCsv(await file.text());
-    const events = sessionEvents(rows, humOptionsFrom(state.alertCfg));
-    state.file = { name: file.name, csv: true, rows, events, summary: sessionSummary(rows), startWall };
+    const text = await file.text();
+    if (job.signal.aborted) return;
+    const { rows, startWall, fileAnalysis } = readSessionCsv(text);
+    state.file = { name: file.name, source: file, csv: true, rows, startWall, fileAnalysis, summary: sessionSummary(rows) };
+    state.file.events = csvEvents(state.file);
     showFileResult(0);
   } catch (e) {
-    showError(`Could not read ${file.name}: ${describeError(e)}`);
+    if (!job.signal.aborted) showError(`Could not read ${file.name}: ${describeError(e)}`);
+  } finally {
+    if (fileJob === job) fileJob = null;
   }
 }
 
-// File mode click on the timeline or a log entry: play from there, or for a CSV show it.
-function seekFile(t) {
-  if (state.file && state.file.csv) showMoment(t);
-  else playFrom(t);
+// The log rebuilt from a CSV's rows, with the current hum alert level.
+const csvEvents = (f) => sessionEvents(f.rows, humOptionsFrom(state.alertCfg), { fileAnalysis: f.fileAnalysis });
+
+// File mode click on the timeline (`fromLog` false) or a log entry. Audio plays from there,
+// with 2 s of lead-in before a log entry. A CSV shows that second: the one the timeline's
+// tooltip shows, or the second an entry happened in.
+function seekFile(t, fromLog = false) {
+  const f = state.file;
+  if (!f) return;
+  if (!f.csv) playFrom(fromLog ? Math.max(0, t - 2) : t);
+  else showMoment(fromLog ? rowAt(f.rows, t) : timeline.nearest(t));
 }
 
-// A CSV: the readings at time t, and the charts' last range up to it.
-function showMoment(t) {
+// A CSV: the readings of one row, and the charts' last range up to it.
+function showMoment(row) {
   const rows = state.file.rows;
-  let lo = 0, hi = rows.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (rows[mid].t < t) lo = mid + 1;
-    else hi = mid;
-  }
-  const row = rows[lo];
-  state.history = rows.slice(Math.max(0, lo + 1 - HISTORY_MAX), lo + 1);
+  if (!row) return;
+  const i = rows.indexOf(row);
+  state.history = rows.slice(Math.max(0, i + 1 - HISTORY_MAX), i + 1);
   state.lastRow = row;
   state.pausedAt = row.t;
   meters.renderFrame(row);
@@ -502,11 +514,11 @@ function showMoment(t) {
   humView.renderRow(row);
   redrawCharts();
   timeline.setCursor(row.t);
-  setText(el.playPos, row.clock ? `${row.clock} · ${fmtDuration(row.t)}` : fmtDuration(row.t));
+  setText(el.playPos, xFormat(row.t, row));
   setText(el.elapsed, `position ${fmtDuration(row.t)}`);
 }
 
-function showFileResult(analysisSecs) {
+function showFileResult(analysisSecs, moment = null) {
   const f = state.file;
   const s = f.summary;
   beginSession();
@@ -542,8 +554,9 @@ function showFileResult(analysisSecs) {
   // A CSV knows the wall clock; an audio file only its position.
   const clockAt = (t) => (f.csv && f.startWall !== null ? fmtClock(new Date(f.startWall + t * 1000)) : 'file');
   const entries = f.events.map((e) => EventLog.fromEvent(e, clockAt(e.t), true));
+  log.seekTitle = f.csv ? 'Show this moment' : 'Play from here';
   for (const row of f.rows) {
-    recorder.add(row);
+    if (!f.csv) recorder.add(row); // a CSV's rows are exported from f.rows (no 12 h cap)
     for (const a of monitor.update(row).raised) {
       entries.push({ clock: clockAt(row.t), t: row.t, kind: 'alert', title: `Alert: ${ALERT_LABELS[a.id]}`, detail: a.message, seekable: true });
     }
@@ -556,7 +569,7 @@ function showFileResult(analysisSecs) {
   if (s.hum && s.hum.last) humView.render(s.hum.last);
   el.humListen.hidden = !!f.csv;
   setText(el.humListenNote, '');
-  if (f.csv) showMoment(s.duration); // the meters as the session ended
+  if (f.csv) showMoment(moment || f.rows[f.rows.length - 1]); // by default, as the session ended
 }
 
 // "Listen to isolated hum" / "off-frequency control": 20 s from the current position,
@@ -703,7 +716,8 @@ document.querySelectorAll('.seg button').forEach((b) =>
   }),
 );
 el.exportCsv.addEventListener('click', () => {
-  download(exportName('csv'), recorder.csv(), 'text/csv');
+  const f = state.mode === 'file' && state.file;
+  download(exportName('csv'), f && f.csv ? csvHeader() + f.rows.map(csvRow).join('') : recorder.csv(), 'text/csv');
   state.exported = true;
 });
 el.exportJson.addEventListener('click', exportJson);

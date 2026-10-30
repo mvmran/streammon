@@ -20,10 +20,13 @@ export function insertByTime(list, entry) {
 }
 
 export class EventLog {
+  // onSeek(t) gets the entry's own time when a seekable row is clicked; seekTitle is the
+  // row's tooltip ('Play from here' for audio, something else for a saved CSV).
   constructor(body, empty, { onSeek } = {}) {
     this.body = body;
     this.empty = empty;
     this.onSeek = onSeek;
+    this.seekTitle = 'Play from here';
     this.entries = [];
     body.addEventListener('click', (e) => {
       const tr = e.target.closest('tr[data-t]');
@@ -47,8 +50,8 @@ export class EventLog {
     const tr = document.createElement('tr');
     if (entry.seekable) {
       tr.className = 'seekable';
-      tr.dataset.t = String(Math.max(0, entry.t - 2));
-      tr.title = 'Play from here';
+      tr.dataset.t = String(entry.t);
+      tr.title = this.seekTitle;
     }
     tr.innerHTML = `<td>${escapeHtml(entry.clock || '')}</td><td>${fmtDuration(entry.t)}</td><td><span class="ev ev-${entry.kind}">${escapeHtml(entry.title)}</span></td><td>${Number.isFinite(entry.ceilingDb) ? `${fmtDb(entry.ceilingDb)} dBFS` : ''}</td><td>${escapeHtml(entry.detail || '')}</td>`;
     this.body.insertBefore(tr, this.body.rows[above] || null);

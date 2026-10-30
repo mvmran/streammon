@@ -15,7 +15,7 @@
 
 import { LoudnessMeter } from './loudness.js';
 import { TruePeakChannel } from './truepeak.js';
-import { ClipDetector, CLEAN, LIMITED, CLIPPING } from './clipdetect.js';
+import { ClipDetector, CLEAN, LIMITED, CLIPPING, sessionStatus } from './clipdetect.js';
 import { StereoMeter } from './stereo.js';
 import { StereoBands, StereoStatus, STEREO_RULES, STEREO, CHANNEL_DEAD, deadChannel, deadDetail, monoStatus } from './stereobands.js';
 import { CrestMeter, toDb } from './crest.js';
@@ -24,7 +24,6 @@ import { ClipEpisodes, StereoLog, HumLog, HUM_LOG } from './episodes.js';
 
 export { CLEAN, LIMITED, CLIPPING };
 
-const SEVERITY = { [CLEAN]: 0, [LIMITED]: 1, [CLIPPING]: 2 };
 
 export { HUM_LOG };
 
@@ -319,10 +318,7 @@ export class StreamAnalyzer {
 
   summary() {
     const secs = this.statusSeconds;
-    const total = secs[CLEAN] + secs[LIMITED] + secs[CLIPPING];
-    let overall = CLEAN;
-    if (secs[CLIPPING] > 0) overall = CLIPPING;
-    else if (total && secs[LIMITED] / total >= 0.25) overall = LIMITED;
+    const { overall, worst, total } = sessionStatus(secs);
     const stereo = this.stereo.session;
     return {
       duration: this.elapsed,
@@ -342,7 +338,7 @@ export class StreamAnalyzer {
       meanDwellRate: total ? this.dwellSum / total : 0,
       fullScaleSamples: this.fullScaleSamples,
       ceilingDb: this.lastClip ? this.lastClip.ceilingDb : null,
-      worstStatus: Object.keys(secs).reduce((w, s) => (secs[s] && SEVERITY[s] > SEVERITY[w] ? s : w), CLEAN),
+      worstStatus: worst,
       hum: {
         mainsHz: this.hum.opt.mainsFrequencyHz,
         statusSeconds: { ...this.humSeconds },

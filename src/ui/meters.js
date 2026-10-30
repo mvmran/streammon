@@ -140,8 +140,9 @@ export function bindMeterResets({ isRunning, onResetPeaks, onResetIntegrated }, 
 
 export function statusDetail(row) {
   if (row.status === 'CLIPPING') {
+    // CSVs saved before fullscale_samples existed only have the number of runs.
     return row.detectors.includes('fullscale')
-      ? `Hitting 0 dBFS: ${row.fullScaleSamples} samples/s`
+      ? `Hitting 0 dBFS: ${Number.isFinite(row.fullScaleSamples) ? `${row.fullScaleSamples} samples/s` : `${row.fullScaleRuns} runs/s`}`
       : `Flat tops at ${fmtDb(row.ceilingDb)} dBFS · ${row.dwellRate.toFixed(0)}/s`;
   }
   if (row.status === 'LIMITED') return `Limiter holding peaks at ${fmtDb(row.ceilingDb)} dBFS`;

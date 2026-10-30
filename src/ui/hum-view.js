@@ -31,13 +31,17 @@ function pauseText(p, mainsHz) {
   return `${fmtDb(p.levelDb)} dBFS (${harmonicList(p.lines.map((k) => k * mainsHz))}), ${ago}`;
 }
 
-// NOT DETECTED only says no steady hum stands out through the programme: a faint one can
-// still show in the pauses, and the panel shouldn't say "nothing" next to that.
+// The line under the status word. NOT DETECTED only says no steady hum stands out through
+// the programme: a faint one can still show in the pauses, and the panel shouldn't say
+// "nothing" next to that. A CSV row has no mask reference, so it can't say "would show".
 const RECENT_PAUSE_SEC = 60;
-function notDetectedText(r) {
-  const p = r.pause;
-  if (p && p.levelDb !== null && p.ageSec <= RECENT_PAUSE_SEC) return `No steady hum through the programme; buzz in pauses at ${fmtDb(p.levelDb)} dBFS`;
-  return `Nothing at ${r.mainsHz} Hz; a hum at ${fmtDb(r.maskReferenceDb, 0)} dBFS would show`;
+function statusText(status, { hz, prominenceDb, pause, mainsHz, maskReferenceDb }) {
+  if (status === 'PRESENT') return `Steady ${hz.toFixed(2)} Hz tone, ${fmtDb(prominenceDb, 0)} dB above its surroundings`;
+  if (status === 'MASKED') return 'Programme too loud near the mains frequency to judge';
+  if (status !== 'NOT DETECTED') return 'Not measured yet';
+  if (pause && pause.levelDb !== null && pause.ageSec <= RECENT_PAUSE_SEC) return `No steady hum through the programme; buzz in pauses at ${fmtDb(pause.levelDb)} dBFS`;
+  if (Number.isFinite(maskReferenceDb)) return `Nothing at ${mainsHz} Hz; a hum at ${fmtDb(maskReferenceDb, 0)} dBFS would show`;
+  return 'No steady hum through the programme';
 }
 
 export class HumView {
@@ -65,16 +69,10 @@ export class HumView {
   // One second of a saved CSV: the hum columns it has (no harmonics or pause lines).
   renderRow(row) {
     this.result = null;
-    const status = row.humStatus || 'IDLE';
-    const present = status === 'PRESENT' && Number.isFinite(row.humLevelDb);
-    const detail = present
-      ? `Steady ${row.humFrequencyHz.toFixed(2)} Hz tone, ${fmtDb(row.humProminenceDb, 0)} dB above its surroundings`
-      : status === 'MASKED'
-        ? 'Programme too loud near the mains frequency to judge'
-        : status === 'NOT DETECTED'
-          ? 'No steady hum through the programme'
-          : 'Not measured yet';
-    this.renderStatus(status, detail);
+    const present = row.humStatus === 'PRESENT' && Number.isFinite(row.humLevelDb);
+    const status = present || row.humStatus !== 'PRESENT' ? row.humStatus || 'IDLE' : 'IDLE';
+    const pause = Number.isFinite(row.humPauseDb) ? { levelDb: row.humPauseDb, ageSec: 0 } : null;
+    this.renderStatus(status, statusText(status, { hz: row.humFrequencyHz, prominenceDb: row.humProminenceDb, pause }));
     setText(this.el.mains, `${row.humMainsHz || this.getConfig().hum.mainsFrequencyHz} Hz mains`);
     setText(this.el.freq, present ? `${row.humFrequencyHz.toFixed(2)} Hz` : '--');
     setText(this.el.level, present ? `${fmtDb(row.humLevelDb)} dBFS` : '--');
@@ -100,13 +98,7 @@ export class HumView {
   render(r) {
     this.result = r;
     this.renderMains();
-    const detail =
-      r.status === 'PRESENT'
-        ? `Steady ${r.fundamentalHz.toFixed(2)} Hz tone, ${fmtDb(r.prominenceDb, 0)} dB above its surroundings`
-        : r.status === 'MASKED'
-          ? 'Programme too loud near the mains frequency to judge'
-          : notDetectedText(r);
-    this.renderStatus(r.status, detail);
+    this.renderStatus(r.status, statusText(r.status, { hz: r.fundamentalHz, prominenceDb: r.prominenceDb, pause: r.pause, mainsHz: r.mainsHz, maskReferenceDb: r.maskReferenceDb }));
     const present = r.status === 'PRESENT';
     setText(this.el.freq, present ? `${r.fundamentalHz.toFixed(2)} Hz` : '--');
     setText(this.el.level, present ? `${fmtDb(r.levelDb)} dBFS` : '--');

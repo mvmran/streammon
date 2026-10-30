@@ -107,7 +107,9 @@ export class AlertMonitor {
     // The Stereo card's short reason, with the consequence spelled out for the banner and
     // the desktop notification.
     if (sc.enabled && this.run.stereoDead >= sc.deadSeconds) {
-      out.stereoDead = `${row.stereoDetail}: only the ${/^Left/.test(row.stereoDetail) ? 'right' : 'left'} side carries sound (${this.run.stereoDead} s)`;
+      // A CSV saved before stereo_detail existed can't say which side ('One channel silent').
+      const side = /^Left/.test(row.stereoDetail) ? 'only the right side carries' : /^Right/.test(row.stereoDetail) ? 'only the left side carries' : 'only one side carries';
+      out.stereoDead = `${row.stereoDetail}: ${side} sound (${this.run.stereoDead} s)`;
     }
     if (sc.enabled && this.run.stereoPhase >= sc.phaseSeconds) out.stereoPhase = `${row.stereoDetail}: cancels on mono speakers and phones (${this.run.stereoPhase} s)`;
     if (sc.enabled && this.run.stereoBalance >= sc.unbalancedSeconds) out.stereoBalance = `${/^\d/.test(row.stereoDetail) ? 'Whole mix ' : ''}${row.stereoDetail} (${this.run.stereoBalance} s)`;

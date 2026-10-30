@@ -1,6 +1,6 @@
 // Stereo image: L/R correlation and side/mid energy ratio over a sliding window.
 
-const MONO_CORRELATION = 0.999;
+export const MONO_CORRELATION = 0.999;
 
 // Correlation and side/mid ratio (dB) from accumulated sums. Correlation is null when
 // either channel is silent; side/mid is -Infinity for identical channels.

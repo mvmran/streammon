@@ -119,9 +119,12 @@ async function main() {
     const tlc = await page.locator('#timeline').boundingBox();
     await page.click('#timeline', { position: { x: tlc.width * 0.5, y: tlc.height / 2 } });
     await page.waitForTimeout(300);
-    check(/^0:(1[5-9]|2\d)$/.test(await page.textContent('#play-pos')), `a timeline click shows that moment (${await page.textContent('#play-pos')})`);
+    check(/0:(1[5-9]|2\d)$/.test(await page.textContent('#play-pos')), `a timeline click shows that moment (${await page.textContent('#play-pos')})`);
     check((await page.textContent('#hum-status-text')) === 'PRESENT', `hum panel shows that second (${await page.textContent('#hum-status-text')})`);
     check(/^−\d/.test(await page.textContent('#st')), `meters show that second (short-term ${await page.textContent('#st')})`);
+    await page.locator('#log-body tr', { hasText: 'Mains hum detected' }).first().click();
+    await page.waitForTimeout(200);
+    check((await page.textContent('#hum-status-text')) === 'PRESENT', `clicking "Mains hum detected" shows a second with hum (${await page.textContent('#play-pos')})`);
     await page.screenshot({ path: join(OUT, 'csv-mode.png'), fullPage: true });
 
     console.log('Audio input device (fake device playing 18Oct2026-30, clipped):');

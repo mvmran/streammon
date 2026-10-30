@@ -5,15 +5,17 @@ import assert from 'node:assert/strict';
 import { programme, hardClip, speechLike, addHum } from './synthetic.js';
 import { StreamAnalyzer } from '../src/dsp/analyzer.js';
 import { csvHeader, csvRow } from '../src/dsp/report.js';
-import { parseCsv, readSessionCsv, sessionEvents, sessionSummary } from '../src/dsp/session-csv.js';
+import { parseCsv, readSessionCsv, sessionEvents, sessionSummary, rowAt } from '../src/dsp/session-csv.js';
+import { AlertMonitor, DEFAULT_ALERTS } from '../src/dsp/alerts.js';
+import { statusDetail } from '../src/ui/meters.js';
 
 const sr = 48000;
 
-// 30 s clean, 20 s hard-clipped, 30 s clean; speech with a -60 dBFS hum from 80 to 150 s.
+// 30 s clean, 20 s clipped at 0 dBFS, 30 s clean; speech with a -60 dBFS hum from 80 to 150 s.
 function session() {
   const music = programme(sr, 80, -20);
   const a = Math.round(30 * sr), b = Math.round(50 * sr);
-  music.set(hardClip(music.subarray(a, b).map((v) => v * 4), -3), a);
+  music.set(hardClip(music.subarray(a, b).map((v) => v * 4), 0), a); // at full scale
   const speech = addHum(speechLike(sr, 90, -30), sr, { levelDb: (t) => (t < 70 ? -60 : -Infinity) });
   const x = new Float32Array(music.length + speech.length);
   x.set(music);
@@ -81,8 +83,93 @@ describe('session CSV', () => {
     assert.equal(back[50].humPauseDb, undefined);
   });
 
+  test('the newer columns come back: full-scale samples, integrated time, pause readings', () => {
+    const clipped = rows.find((r) => r.status === 'CLIPPING' && r.fullScaleSamples > 0);
+    assert.ok(clipped, 'a second with full-scale samples');
+    const orig = s.rows.find((r) => r.t === clipped.t);
+    assert.equal(clipped.fullScaleSamples, orig.fullScaleSamples);
+    assert.equal(rows[60].integratedSeconds, s.rows[60].integratedSeconds);
+    assert.equal(rows[60].humPauseReadings, s.rows[60].humPauseReadings);
+    assert.match(statusDetail(clipped), /^Hitting 0 dBFS: \d+ samples\/s$/);
+  });
+
+  test('a log entry is shown at the second it happened in', () => {
+    const start = sessionEvents(rows, { alertLevelDbfs: -85 }).find((e) => e.type === 'start' && e.status === 'CLIPPING');
+    assert.equal(rowAt(rows, start.t).status, 'CLIPPING', `row at ${start.t}`);
+    assert.equal(rowAt(rows, start.t).t, start.t + 1);
+  });
+
   test('quoted fields keep their commas; other files are refused', () => {
     assert.deepEqual(parseCsv('a,b\n"x, y","say ""hi"""\n'), [['a', 'b'], ['x, y', 'say "hi"']]);
     assert.throws(() => readSessionCsv('name,score\nann,3\n'), /not a Stream Audio Monitor CSV/);
+  });
+});
+
+// Older and re-saved files.
+const dropColumns = (text, names) => {
+  const [header, ...recs] = parseCsv(text);
+  const keep = header.map((h, i) => (names.includes(h) ? -1 : i)).filter((i) => i >= 0);
+  const q = (v) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+  return [header, ...recs].map((r) => keep.map((i) => q(r[i])).join(',')).join('\n') + '\n';
+};
+
+describe('session CSV from file analysis and older versions', () => {
+  // A stereo recording whose right channel drops out twice (20-40 s and 70-90 s), analysed
+  // as File mode does: no band filters, so ordinary stereo is left blank in the rows.
+  const L = programme(sr, 110, -20, 1);
+  const R = programme(sr, 110, -20, 2);
+  for (const [a, b] of [[20, 40], [70, 90]]) R.fill(0, a * sr, b * sr);
+  const rows0 = [], events0 = [];
+  const an = new StreamAnalyzer(sr, { onSecond: (r) => rows0.push(r), onEvent: (e) => events0.push(e) });
+  for (let i = 0; i < L.length; i += 4800) an.process(L.subarray(i, i + 4800), R.subarray(i, i + 4800));
+  an.finish();
+  const text = csvHeader() + rows0.map(csvRow).join('');
+
+  test('file analysis: back to stereo and the second dropout are rebuilt too', () => {
+    const { rows, fileAnalysis } = readSessionCsv(text);
+    assert.ok(fileAnalysis);
+    const live = events0.filter((e) => e.type === 'stereo').map(key);
+    assert.ok(live.length >= 4, live.join(', '));
+    assert.deepEqual(sessionEvents(rows, { alertLevelDbfs: -85 }, { fileAnalysis }).filter((e) => e.type === 'stereo').map(key), live);
+  });
+
+  test('before stereo_detail: alerts get a reason, and never name the wrong side', () => {
+    const { rows } = readSessionCsv(dropColumns(text, ['stereo_detail', 'hum_pause_dbfs', 'fullscale_samples', 'integrated_s', 'hum_pause_readings']));
+    const dead = rows.find((r) => r.stereoStatus === 'CHANNEL DEAD');
+    assert.equal(dead.stereoDetail, 'One channel silent'); // the balance is blank while a side is silent
+    const mon = new AlertMonitor(DEFAULT_ALERTS);
+    const raised = rows.flatMap((r) => mon.update(r).raised);
+    const msg = raised.find((a) => a.id === 'stereoDead');
+    assert.ok(msg && /^One channel silent: only one side carries sound/.test(msg.message), msg && msg.message);
+    assert.ok(raised.every((a) => !/undefined/.test(a.message)), raised.map((a) => a.message).join('; '));
+  });
+
+  test('before stereo_status: mono from the correlation', () => {
+    const mono = programme(sr, 20, -20, 3);
+    const rs = [];
+    const a2 = new StreamAnalyzer(sr, { onSecond: (r) => rs.push(r) });
+    a2.process(mono, mono);
+    const { rows } = readSessionCsv(dropColumns(csvHeader() + rs.map(csvRow).join(''), ['stereo_status', 'stereo_detail', 'balance_db']));
+    assert.ok(rows.slice(3).every((r) => r.mono), 'a mono feed reads mono');
+    assert.ok(sessionSummary(rows).mono);
+    assert.ok(!readSessionCsv(dropColumns(text, ['stereo_status', 'stereo_detail', 'balance_db'])).rows[5].mono, 'stereo stays stereo');
+  });
+
+  test('a blank cell does not hide the highest true peak', () => {
+    const [header, ...recs] = parseCsv(text);
+    const i = header.indexOf('true_peak_dbtp');
+    recs[3][i] = '';
+    const blanked = [header, ...recs].map((r) => r.join(',')).join('\n');
+    const best = Math.max(...rows0.map((r) => r.truePeakDb));
+    assert.ok(Math.abs(sessionSummary(readSessionCsv(blanked).rows).truePeakDb - best) < 0.06);
+  });
+
+  test('a clock re-saved by a spreadsheet is not shown in pieces', () => {
+    const [header, ...recs] = parseCsv(text);
+    const w = header.indexOf('wall_clock');
+    for (const r of recs) r[w] = '10/30/2026 7:17:21 PM';
+    const back = readSessionCsv([header, ...recs].map((r) => r.join(',')).join('\n'));
+    assert.equal(back.startWall, null);
+    assert.equal(back.rows[0].clock, null);
   });
 });

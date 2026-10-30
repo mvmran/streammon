@@ -1,53 +1,17 @@
 // Reads a saved session CSV (report.js CSV_COLUMNS) back into rows, and replays them
-// through the event log's rules (episodes.js) and the alert rules, for reviewing a past
-// session in File mode. Columns are found by name, so older files with fewer columns
-// load too. Only what the CSV holds can be shown: no spectrum, pan map or audio.
+// through the event log's rules (episodes.js), for reviewing a past session in File mode.
+// Columns are found by name, so older files with fewer columns load too; what a column
+// added later would have held is filled in where it can be worked out. Only what the CSV
+// holds can be shown: no spectrum, pan map or audio.
 
-import { CLEAN, LIMITED, CLIPPING } from './clipdetect.js';
+import { CLEAN, LIMITED, CLIPPING, sessionStatus } from './clipdetect.js';
 import { PRESENT, NOT_DETECTED, MASKED } from './hum.js';
+import { MONO, UNBALANCED, CHANNEL_DEAD, PHASE_PROBLEM, WIDE, STEREO_OK, STEREO, deadDetail, monoStatus } from './stereobands.js';
+import { MONO_CORRELATION } from './stereo.js';
+import { CSV_COLUMNS } from './report.js';
 import { ClipEpisodes, StereoLog, HumLog } from './episodes.js';
 
-const num = (s) => {
-  if (s === '' || s === undefined) return null;
-  if (s === '-inf') return -Infinity;
-  if (s === 'inf') return Infinity;
-  const x = Number(s);
-  return Number.isFinite(x) ? x : null;
-};
-const str = (s) => (s === undefined || s === '' ? null : s);
-
-// CSV column -> [row field, parser]. The reverse of CSV_COLUMNS.
-const FIELDS = {
-  wall_clock: ['wallClock', str],
-  elapsed_s: ['t', num],
-  momentary_lufs: ['momentary', num],
-  short_term_lufs: ['shortTerm', num],
-  integrated_lufs: ['integrated', num],
-  lra_lu: ['lra', num],
-  sample_peak_dbfs: ['samplePeakDb', num],
-  true_peak_dbtp: ['truePeakDb', num],
-  rms_dbfs: ['rmsDb', num],
-  crest_db: ['crestDb', num],
-  correlation: ['correlation', num],
-  side_mid_db: ['sideMidDb', num],
-  balance_db: ['stereoBalanceDb', num],
-  stereo_status: ['stereoStatus', str],
-  status: ['status', str],
-  detectors: ['detectors', (s) => (s ? s.split('+') : [])],
-  dwell_runs_per_s: ['dwellRate', num],
-  pileup_ratio: ['pileRatio', num],
-  peaks_pinned: ['pinned', num],
-  ceiling_dbfs: ['ceilingDb', num],
-  fullscale_runs: ['fullScaleRuns', (s) => num(s) ?? 0],
-  hum_mains_hz: ['humMainsHz', num],
-  hum_status: ['humStatus', str],
-  hum_level_dbfs: ['humLevelDb', num],
-  hum_frequency_hz: ['humFrequencyHz', num],
-  hum_prominence_db: ['humProminenceDb', num],
-  hum_projected_dbfs: ['humProjectedDb', num],
-  stereo_detail: ['stereoDetail', str],
-  hum_pause_dbfs: ['humPauseDb', num],
-};
+const COLUMNS = new Map(CSV_COLUMNS.map((c) => [c.name, c]));
 
 // RFC 4180 records: quoted fields may hold commas, quotes ("") and line breaks.
 export function parseCsv(text) {
@@ -78,64 +42,108 @@ export function parseCsv(text) {
   return records.filter((r) => r.length > 1 || r[0] !== '');
 }
 
-// "2026-10-30 19:17:21" (local time) -> ms since the epoch, or null.
+// "2026-10-30 19:17:21" (local time, as exported) -> ms since the epoch, or null (e.g. a
+// spreadsheet re-saved it as "10/30/2026 7:17:21 PM", which could be either day order).
 function parseStamp(s) {
   const m = s && /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d):(\d\d)/.exec(s);
   return m ? new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime() : null;
 }
 
-// Parses a session CSV into rows like the analyzer's onSecond rows (the fields the CSV
-// holds, plus a few derived ones). Throws if it isn't one.
+// The Stereo card's reason for files saved before stereo_detail existed (2026-10-22 to
+// 10-25), worked out from the balance where it can be; the alerts quote it. A dead channel's
+// side can't be: the balance is blank while one side is silent.
+function stereoDetailFor(r) {
+  const b = typeof r.stereoBalanceDb === 'number' ? r.stereoBalanceDb : null; // R over L, dB (-inf: right silent)
+  switch (r.stereoStatus) {
+    case CHANNEL_DEAD:
+      return b === null || Number.isNaN(b) ? 'One channel silent' : deadDetail(b < 0 ? 'right' : 'left');
+    case UNBALANCED:
+      if (!Number.isFinite(b)) return 'One side louder';
+      return r.correlation > MONO_CORRELATION ? monoStatus(b).detail : `${Math.abs(b).toFixed(1)} dB louder on the ${b < 0 ? 'left' : 'right'}`;
+    case MONO:
+      return 'Left and right identical';
+    case PHASE_PROBLEM:
+      return 'Out of phase';
+    case WIDE:
+      return 'Wide image';
+    case STEREO_OK:
+      return 'Balanced, in phase';
+    default:
+      return null;
+  }
+}
+
+// Parses a session CSV into rows like the analyzer's onSecond rows. Throws if it isn't
+// one. fileAnalysis: saved from an analysed audio file (no wall clock), whose rows judge
+// only MONO / UNBALANCED / CHANNEL DEAD and leave ordinary stereo blank.
 export function readSessionCsv(text) {
   const [header, ...records] = parseCsv(text.replace(/^﻿/, ''));
   if (!header || !header.includes('elapsed_s') || !header.includes('status')) {
     throw new Error('not a Stream Audio Monitor CSV (no elapsed_s and status columns)');
   }
-  const cols = header.map((name) => FIELDS[name] || null);
+  const cols = header.map((name) => COLUMNS.get(name) || null);
+  const has = (name) => header.includes(name);
   const rows = [];
   let maxTp = -Infinity;
   for (const rec of records) {
     const row = {};
     cols.forEach((c, i) => {
-      if (c) row[c[0]] = c[1](rec[i]);
+      if (c) row[c.field] = c.parse(rec[i]);
     });
     if (!Number.isFinite(row.t) || !row.status) continue;
     row.detectors ??= [];
     for (const k of ['dwellRate', 'pileRatio', 'pinned']) row[k] ??= 0;
-    row.mono = row.stereoStatus === 'MONO';
+    // Before stereo_status (2026-10-22) only the correlation says whether it was mono.
+    row.mono = has('stereo_status') ? row.stereoStatus === MONO : row.correlation > MONO_CORRELATION;
+    if (row.stereoStatus && !has('stereo_detail')) row.stereoDetail = stereoDetailFor(row);
     if (Number.isFinite(row.truePeakDb) && row.truePeakDb > maxTp) maxTp = row.truePeakDb;
     row.maxTruePeakDb = maxTp; // the true-peak card: highest so far
-    // A pause reading the CSV only has as a level: count it as one half-second reading.
-    row.humPauseReadings = Number.isFinite(row.humPauseDb) ? 1 : 0;
+    // Before hum_pause_readings: count a second with a pause level as one reading.
+    if (!has('hum_pause_readings')) row.humPauseReadings = Number.isFinite(row.humPauseDb) ? 1 : 0;
     rows.push(row);
   }
   if (!rows.length) throw new Error('the CSV has no rows');
-  // The session start on the wall clock, from the first row that has one.
-  const first = rows.find((r) => parseStamp(r.wallClock) !== null);
-  const startWall = first ? parseStamp(first.wallClock) - first.t * 1000 : null;
-  for (const r of rows) r.clock = r.wallClock ? r.wallClock.slice(11, 19) : null;
-  return { rows, startWall };
+  let startWall = null;
+  for (const r of rows) {
+    const ms = parseStamp(r.wallClock);
+    r.clock = ms === null ? null : r.wallClock.slice(11, 19);
+    if (startWall === null && ms !== null) startWall = ms - r.t * 1000;
+  }
+  const fileAnalysis = rows.every((r) => !r.wallClock);
+  return { rows, startWall, fileAnalysis };
 }
 
 // Replays rows through the event log's rules. humOptions: { alertLevelDbfs } (the current
 // settings, as file analysis uses); the mains frequency comes from the rows.
-export function sessionEvents(rows, humOptions) {
+export function sessionEvents(rows, humOptions, { fileAnalysis = false } = {}) {
   const events = [];
   const emit = (e) => events.push(e);
   const clip = new ClipEpisodes(emit);
   const stereo = new StereoLog(emit);
   const hum = new HumLog(emit);
-  // Integrated resets aren't in the CSV (the reading restarts within the second, so it
-  // can't be told from ordinary changes); the JSON export's log has them.
+  // Integrated resets aren't in the CSV (integrated_s restarts, but older files don't
+  // have it); the JSON export's log has them.
   for (const r of rows) {
-    clip.update({ status: r.status, detectors: r.detectors, dwellRate: r.dwellRate, fullScaleSamples: 0, ceilingDb: r.ceilingDb, pileRatio: r.pileRatio }, r.t);
+    clip.update({ status: r.status, detectors: r.detectors, dwellRate: r.dwellRate, fullScaleSamples: r.fullScaleSamples || 0, ceilingDb: r.ceilingDb, pileRatio: r.pileRatio }, r.t);
     const present = r.humStatus === PRESENT && Number.isFinite(r.humLevelDb);
     const h = r.humStatus ? { status: r.humStatus, present, levelDb: r.humLevelDb, fundamentalHz: r.humFrequencyHz, refHarmonic: 1 } : null;
     hum.update(h, r.t, { alertLevelDbfs: humOptions.alertLevelDbfs, mainsFrequencyHz: r.humMainsHz });
-    stereo.update(r.stereoStatus, r.stereoDetail, r.t);
+    // As the analyzer does: file analysis leaves ordinary stereo blank.
+    stereo.update(r.stereoStatus || (fileAnalysis ? STEREO : null), r.stereoDetail, r.t);
   }
   if (rows.length) clip.finish(rows[rows.length - 1].t);
   return events.sort((a, b) => a.t - b.t);
+}
+
+// The row covering session time t: each row is the second ending at its t.
+export function rowAt(rows, t) {
+  let lo = 0, hi = rows.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (rows[mid].t <= t) lo = mid + 1;
+    else hi = mid;
+  }
+  return rows[lo];
 }
 
 // Session totals from the rows, in the shape of StreamAnalyzer.summary() (what the file
@@ -145,17 +153,18 @@ export function sessionSummary(rows) {
   const last = rows[rows.length - 1];
   const secs = { [CLEAN]: 0, [LIMITED]: 0, [CLIPPING]: 0 };
   const hum = { [PRESENT]: 0, [NOT_DETECTED]: 0, [MASKED]: 0 };
-  let tp = -Infinity, sp = -Infinity, pow = 0, n = 0, humMax = -Infinity, mono = 0, judged = 0, cw = 0, cs = 0;
-  let maxM = -Infinity, maxS = -Infinity, dwell = 0;
+  const max = { truePeakDb: -Infinity, samplePeakDb: -Infinity, momentary: -Infinity, shortTerm: -Infinity, hum: -Infinity };
+  const higher = (k, v) => {
+    if (Number.isFinite(v) && v > max[k]) max[k] = v;
+  };
+  let pow = 0, n = 0, mono = 0, judged = 0, cw = 0, cs = 0, dwell = 0, fullScale = 0;
   for (const r of rows) {
     if (r.status in secs) secs[r.status]++;
     if (r.humStatus in hum) hum[r.humStatus]++;
-    if (r.humStatus === PRESENT && r.humLevelDb > humMax) humMax = r.humLevelDb;
-    if (r.truePeakDb > tp) tp = r.truePeakDb;
-    if (r.samplePeakDb > sp) sp = r.samplePeakDb;
-    if (r.momentary > maxM) maxM = r.momentary;
-    if (r.shortTerm > maxS) maxS = r.shortTerm;
+    if (r.humStatus === PRESENT) higher('hum', r.humLevelDb);
+    for (const k of ['truePeakDb', 'samplePeakDb', 'momentary', 'shortTerm']) higher(k, r[k]);
     dwell += r.dwellRate || 0;
+    fullScale += r.fullScaleSamples || 0;
     if (Number.isFinite(r.rmsDb)) {
       const p = 10 ** (r.rmsDb / 10);
       pow += p;
@@ -166,34 +175,32 @@ export function sessionSummary(rows) {
         cw += p;
       }
     }
-    if (r.stereoStatus) {
+    if (r.stereoStatus || Number.isFinite(r.correlation)) {
       judged++;
-      if (r.stereoStatus === 'MONO') mono++;
+      if (r.mono) mono++;
     }
   }
-  const total = secs[CLEAN] + secs[LIMITED] + secs[CLIPPING];
-  let overall = CLEAN;
-  if (secs[CLIPPING] > 0) overall = CLIPPING;
-  else if (total && secs[LIMITED] / total >= 0.25) overall = LIMITED;
+  const { overall, worst, total } = sessionStatus(secs);
   const rmsDb = n ? 10 * Math.log10(pow / n) : -Infinity;
   return {
     duration: last.t,
     sampleRate: null,
     integrated: last.integrated,
     lra: last.lra,
-    maxMomentary: maxM,
-    maxShortTerm: maxS,
-    samplePeakDb: sp,
-    truePeakDb: tp,
-    crestDb: Number.isFinite(sp) && Number.isFinite(rmsDb) ? sp - rmsDb : null,
+    maxMomentary: max.momentary,
+    maxShortTerm: max.shortTerm,
+    samplePeakDb: max.samplePeakDb,
+    truePeakDb: max.truePeakDb,
+    crestDb: Number.isFinite(max.samplePeakDb) && Number.isFinite(rmsDb) ? max.samplePeakDb - rmsDb : null,
     correlation: cw ? cs / cw : null,
     sideMidDb: null,
     mono: judged > 0 && mono / judged >= 0.5,
     statusSeconds: secs,
     overallStatus: overall,
     meanDwellRate: total ? dwell / total : 0,
+    fullScaleSamples: fullScale,
     ceilingDb: last.ceilingDb,
-    worstStatus: secs[CLIPPING] ? CLIPPING : secs[LIMITED] ? LIMITED : CLEAN,
-    hum: { mainsHz: last.humMainsHz, statusSeconds: hum, maxLevelDb: humMax, last: null },
+    worstStatus: worst,
+    hum: { mainsHz: last.humMainsHz, statusSeconds: hum, maxLevelDb: max.hum, last: null },
   };
 }

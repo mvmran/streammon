@@ -26,6 +26,19 @@ export const CLEAN = 'CLEAN';
 export const LIMITED = 'LIMITED';
 export const CLIPPING = 'CLIPPING';
 
+const SEVERITY = { [CLEAN]: 0, [LIMITED]: 1, [CLIPPING]: 2 };
+
+// A session's verdict from its seconds per status: overall is CLIPPING if any second
+// clipped, LIMITED if at least a quarter were limited; worst is the worst status seen.
+export function sessionStatus(secs) {
+  const total = secs[CLEAN] + secs[LIMITED] + secs[CLIPPING];
+  let overall = CLEAN;
+  if (secs[CLIPPING] > 0) overall = CLIPPING;
+  else if (total && secs[LIMITED] / total >= 0.25) overall = LIMITED;
+  const worst = Object.keys(secs).reduce((w, s) => (secs[s] && SEVERITY[s] > SEVERITY[w] ? s : w), CLEAN);
+  return { overall, worst, total };
+}
+
 export const DEFAULT_CLIP_OPTIONS = {
   ceilingPercentile: 99.9,
   ceilingWindowSec: 10,

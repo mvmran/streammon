@@ -248,7 +248,9 @@ describe('report', () => {
     const line = fields(csvRow(row));
     assert.equal(line.length, h.length);
     assert.equal(h[0], 'wall_clock');
-    assert.deepEqual(h.slice(-2), ['stereo_detail', 'hum_pause_dbfs'], 'new columns are added at the end');
+    // Newer columns only ever go at the end: the order of every earlier one is fixed.
+    assert.deepEqual(h.slice(-5), ['stereo_detail', 'hum_pause_dbfs', 'fullscale_samples', 'integrated_s', 'hum_pause_readings'], 'new columns are added at the end');
+    assert.equal(h.indexOf('stereo_detail'), 27);
     assert.equal(line[h.indexOf('stereo_detail')], 'Out of phase: 2k, 4k');
     assert.equal(line[h.indexOf('stereo_status')], 'PHASE PROBLEM');
   });

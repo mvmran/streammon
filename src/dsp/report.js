@@ -1,36 +1,56 @@
 // CSV rows and JSON summary for session export.
 
+// Parses one exported cell back: the inverse of num().
+export function parseNum(s) {
+  if (s === '' || s === undefined) return null;
+  if (s === '-inf') return -Infinity;
+  if (s === 'inf') return Infinity;
+  const x = Number(s);
+  return Number.isFinite(x) ? x : null;
+}
+const parseStr = (s) => (s === undefined || s === '' ? null : s);
+
+// One list for export and import (session-csv.js): { name, field, get, parse }.
+const number = (name, field, digits = 1) => ({ name, field, get: (r) => num(r[field], digits), parse: parseNum });
+const text = (name, field) => ({ name, field, get: (r) => r[field] || '', parse: parseStr });
+const count = (name, field) => ({ name, field, get: (r) => String(r[field] ?? 0), parse: (s) => parseNum(s) ?? 0 });
+
 export const CSV_COLUMNS = [
-  ['wall_clock', (r) => r.wallClock ?? ''],
-  ['elapsed_s', (r) => r.t.toFixed(1)],
-  ['momentary_lufs', (r) => num(r.momentary)],
-  ['short_term_lufs', (r) => num(r.shortTerm)],
-  ['integrated_lufs', (r) => num(r.integrated)],
-  ['lra_lu', (r) => num(r.lra)],
-  ['sample_peak_dbfs', (r) => num(r.samplePeakDb)],
-  ['true_peak_dbtp', (r) => num(r.truePeakDb)],
-  ['rms_dbfs', (r) => num(r.rmsDb)],
-  ['crest_db', (r) => num(r.crestDb)],
-  ['correlation', (r) => num(r.correlation, 4)],
-  ['side_mid_db', (r) => num(r.sideMidDb)],
-  ['balance_db', (r) => num(r.stereoBalanceDb)],
-  ['stereo_status', (r) => r.stereoStatus || ''],
-  ['status', (r) => r.status],
-  ['detectors', (r) => (r.detectors || []).join('+')],
-  ['dwell_runs_per_s', (r) => num(r.dwellRate)],
-  ['pileup_ratio', (r) => num(r.pileRatio, 2)],
-  ['peaks_pinned', (r) => num(r.pinned, 2)],
-  ['ceiling_dbfs', (r) => num(r.ceilingDb)],
-  ['fullscale_runs', (r) => String(r.fullScaleRuns ?? 0)],
-  ['hum_mains_hz', (r) => (r.humMainsHz ? String(r.humMainsHz) : '')],
-  ['hum_status', (r) => r.humStatus || ''],
-  ['hum_level_dbfs', (r) => num(r.humLevelDb)],
-  ['hum_frequency_hz', (r) => num(r.humFrequencyHz, 2)],
-  ['hum_prominence_db', (r) => num(r.humProminenceDb)],
-  ['hum_projected_dbfs', (r) => num(r.humProjectedDb)],
+  text('wall_clock', 'wallClock'),
+  { name: 'elapsed_s', field: 't', get: (r) => r.t.toFixed(1), parse: parseNum },
+  number('momentary_lufs', 'momentary'),
+  number('short_term_lufs', 'shortTerm'),
+  number('integrated_lufs', 'integrated'),
+  number('lra_lu', 'lra'),
+  number('sample_peak_dbfs', 'samplePeakDb'),
+  number('true_peak_dbtp', 'truePeakDb'),
+  number('rms_dbfs', 'rmsDb'),
+  number('crest_db', 'crestDb'),
+  number('correlation', 'correlation', 4),
+  number('side_mid_db', 'sideMidDb'),
+  number('balance_db', 'stereoBalanceDb'),
+  text('stereo_status', 'stereoStatus'),
+  { name: 'status', field: 'status', get: (r) => r.status, parse: parseStr },
+  { name: 'detectors', field: 'detectors', get: (r) => (r.detectors || []).join('+'), parse: (s) => (s ? s.split('+') : []) },
+  number('dwell_runs_per_s', 'dwellRate'),
+  number('pileup_ratio', 'pileRatio', 2),
+  number('peaks_pinned', 'pinned', 2),
+  number('ceiling_dbfs', 'ceilingDb'),
+  count('fullscale_runs', 'fullScaleRuns'),
+  { name: 'hum_mains_hz', field: 'humMainsHz', get: (r) => (r.humMainsHz ? String(r.humMainsHz) : ''), parse: parseNum },
+  text('hum_status', 'humStatus'),
+  number('hum_level_dbfs', 'humLevelDb'),
+  number('hum_frequency_hz', 'humFrequencyHz', 2),
+  number('hum_prominence_db', 'humProminenceDb'),
+  number('hum_projected_dbfs', 'humProjectedDb'),
   // Newer columns go at the end, so older spreadsheets reading by position still work.
-  ['stereo_detail', (r) => r.stereoDetail || ''],
-  ['hum_pause_dbfs', (r) => num(r.humPauseDb)],
+  text('stereo_detail', 'stereoDetail'),
+  number('hum_pause_dbfs', 'humPauseDb'),
+  // So a saved session replays like the live one (session-csv.js): full-scale samples,
+  // time since the last integrated reset, half-second pause readings with buzz.
+  count('fullscale_samples', 'fullScaleSamples'),
+  number('integrated_s', 'integratedSeconds', 0),
+  count('hum_pause_readings', 'humPauseReadings'),
 ];
 
 function num(x, digits = 1) {
@@ -41,11 +61,11 @@ function num(x, digits = 1) {
 }
 
 export function csvHeader() {
-  return CSV_COLUMNS.map(([name]) => name).join(',') + '\n';
+  return CSV_COLUMNS.map((c) => c.name).join(',') + '\n';
 }
 
 export function csvRow(row) {
-  return CSV_COLUMNS.map(([, get]) => csvEscape(get(row))).join(',') + '\n';
+  return CSV_COLUMNS.map((c) => csvEscape(c.get(row))).join(',') + '\n';
 }
 
 function csvEscape(s) {
