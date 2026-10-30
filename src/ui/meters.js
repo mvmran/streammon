@@ -182,7 +182,7 @@ const ceilingRef = (rows) => {
 export function timeFormatter(getState) {
   return (t, row) => {
     const { mode, startWall } = getState();
-    if (mode === 'file') return row ? `File ${fmtDuration(t)}` : fmtDuration(t);
+    if (mode === 'file') return row ? (row.clock ? `${row.clock} · ${fmtDuration(t)}` : `File ${fmtDuration(t)}`) : fmtDuration(t); // a CSV's rows have clock times
     if (row) return row.clock ? `${row.clock} · ${fmtDuration(t)}` : fmtDuration(t);
     return new Date(startWall + t * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
   };

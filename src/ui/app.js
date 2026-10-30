@@ -5,6 +5,7 @@ import { listInputDevices, devicesHaveLabels, openInputDevice, openTabCapture, s
 import { AlertMonitor, ALERT_LABELS, humOptionsFrom } from '../dsp/alerts.js';
 import { isolateHum } from '../dsp/hum-isolate.js';
 import { summaryJson } from '../dsp/report.js';
+import { readSessionCsv, sessionEvents, sessionSummary } from '../dsp/session-csv.js';
 import { TimeChart } from './charts.js';
 import { SpectrumView } from './spectrum.js';
 import { PanMapView } from './pan-map.js';
@@ -24,7 +25,7 @@ const el = {
   source: $('source'), device: $('device'), deviceField: $('device-field'), start: $('start'), stop: $('stop'), reset: $('reset'),
   wallclock: $('wallclock'), elapsed: $('elapsed'), tabReminder: $('tab-reminder'), error: $('error'),
   alerts: $('alerts'), filePanel: $('file-panel'), dropzone: $('dropzone'), fileInput: $('file-input'),
-  fileProgress: $('file-progress'), fileResult: $('file-result'), fileName: $('file-name'), fileSummary: $('file-summary'),
+  fileProgress: $('file-progress'), fileResult: $('file-result'), fileName: $('file-name'), fileSummary: $('file-summary'), fileHint: $('file-hint'),
   play: $('play'), playPos: $('play-pos'), exportCsv: $('export-csv'), exportJson: $('export-json'),
   recordDisk: $('record-disk'), clearLog: $('clear-log'), dRate: $('d-rate'),
   humListen: $('hum-listen'), humGain: $('hum-gain'), humListenHum: $('hum-listen-hum'), humListenCtl: $('hum-listen-ctl'),
@@ -96,7 +97,7 @@ state.alertCfg = setupSettings($('settings'), $('settings-btn'), (cfg) => {
 state.alerts = new AlertMonitor(state.alertCfg);
 engine.setHumOptions(humOptionsFrom(state.alertCfg));
 
-const log = new EventLog($('log-body'), $('log-empty'), { onSeek: (t) => state.mode === 'file' && playFrom(t) });
+const log = new EventLog($('log-body'), $('log-empty'), { onSeek: (t) => state.mode === 'file' && seekFile(t) });
 const recorder = new SessionRecorder();
 recorder.onDiskError = (e, name) => {
   updateRecordButton();
@@ -273,7 +274,7 @@ function setMode(mode) {
   el.deviceField.hidden = mode !== 'device';
   el.tabReminder.hidden = mode !== 'tab';
   el.filePanel.hidden = mode !== 'file';
-  el.humListen.hidden = !(mode === 'file' && state.file);
+  el.humListen.hidden = !(mode === 'file' && state.file && !state.file.csv);
   el.start.hidden = mode === 'file';
   el.stop.hidden = el.reset.hidden = mode === 'file';
   document.querySelectorAll('.seg button').forEach((b) => (b.disabled = false));
@@ -396,8 +397,8 @@ function createTimeline() {
     band: { from: -16, to: -12, label: 'target' },
     refs: () => [{ y: -10, label: '−10 LUFS', colour: '--serious' }],
     statusStrip: true,
-    xFormat: (t, row) => (row ? `File ${fmtDuration(t)}` : fmtDuration(t)),
-    onClick: (t) => playFrom(t),
+    xFormat: (t, row) => (row ? (row.clock ? `${row.clock} · ${fmtDuration(t)}` : `File ${fmtDuration(t)}`) : fmtDuration(t)),
+    onClick: (t) => seekFile(t),
   });
   el.fileResult.hidden = true;
 }
@@ -413,8 +414,11 @@ function cancelFileAnalysis() {
   el.fileProgress.hidden = true;
 }
 
+const isCsv = (file) => /\.csv$/i.test(file.name) || file.type === 'text/csv';
+
 async function handleFile(file) {
   if (!file) return;
+  if (isCsv(file)) return openCsv(file);
   cancelFileAnalysis();
   const job = (fileJob = new AbortController());
   if (state.running) await stopLive();
@@ -454,6 +458,54 @@ async function handleFile(file) {
   }
 }
 
+// A CSV saved by this app: the session's rows, the log rebuilt from them with the
+// current settings, and its totals. No audio, so clicks show a moment instead of playing.
+async function openCsv(file) {
+  cancelFileAnalysis();
+  if (state.running) await stopLive();
+  state.playing = false;
+  await engine.close();
+  state.file = null;
+  showError('');
+  el.fileResult.hidden = true;
+  try {
+    const { rows, startWall } = readSessionCsv(await file.text());
+    const events = sessionEvents(rows, humOptionsFrom(state.alertCfg));
+    state.file = { name: file.name, csv: true, rows, events, summary: sessionSummary(rows), startWall };
+    showFileResult(0);
+  } catch (e) {
+    showError(`Could not read ${file.name}: ${describeError(e)}`);
+  }
+}
+
+// File mode click on the timeline or a log entry: play from there, or for a CSV show it.
+function seekFile(t) {
+  if (state.file && state.file.csv) showMoment(t);
+  else playFrom(t);
+}
+
+// A CSV: the readings at time t, and the charts' last range up to it.
+function showMoment(t) {
+  const rows = state.file.rows;
+  let lo = 0, hi = rows.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (rows[mid].t < t) lo = mid + 1;
+    else hi = mid;
+  }
+  const row = rows[lo];
+  state.history = rows.slice(Math.max(0, lo + 1 - HISTORY_MAX), lo + 1);
+  state.lastRow = row;
+  state.pausedAt = row.t;
+  meters.renderFrame(row);
+  meters.renderRow(row);
+  humView.renderRow(row);
+  redrawCharts();
+  timeline.setCursor(row.t);
+  setText(el.playPos, row.clock ? `${row.clock} · ${fmtDuration(row.t)}` : fmtDuration(row.t));
+  setText(el.elapsed, `position ${fmtDuration(row.t)}`);
+}
+
 function showFileResult(analysisSecs) {
   const f = state.file;
   const s = f.summary;
@@ -463,6 +515,7 @@ function showFileResult(analysisSecs) {
   setText(el.fileName, f.name);
   const speed = analysisSecs > 0 ? Math.round(s.duration / analysisSecs) : 0;
   const statusSecs = s.statusSeconds;
+  const csvStart = f.csv && f.startWall !== null ? fmtStamp(new Date(f.startWall)) : '';
   el.fileSummary.innerHTML = [
     ['Status', `<span class="ev ev-${s.overallStatus}">${s.overallStatus}</span>`],
     ['Duration', fmtDuration(s.duration)],
@@ -474,20 +527,25 @@ function showFileResult(analysisSecs) {
     ['Clipping', `${statusSecs.CLIPPING} s`],
     ['Limited', `${statusSecs.LIMITED} s`],
     ['Stereo', s.mono ? 'MONO' : `corr ${s.correlation === null ? '--' : s.correlation.toFixed(3)}`],
-    ['Rate', `${s.sampleRate} Hz`],
-    ['Analysed', speed ? `${speed}× real time` : ''],
+    ...(f.csv
+      ? [['Started', csvStart || '--']]
+      : [['Rate', `${s.sampleRate} Hz`], ['Analysed', speed ? `${speed}× real time` : '']]),
   ].map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('');
-  setText(el.dRate, `${s.sampleRate} Hz`);
+  setText(el.dRate, f.csv ? '--' : `${s.sampleRate} Hz`);
+  el.play.hidden = !!f.csv;
+  setText(el.fileHint, f.csv ? 'Saved session: click the timeline or a log entry to see that moment.' : 'Click the timeline or a log entry to play from there.');
 
   timeline.setData(f.rows, 0, s.duration);
   timeline.setCursor(null);
   // Log: status episodes and the alerts the rules would have raised.
   const monitor = new AlertMonitor(state.alertCfg);
-  const entries = f.events.map((e) => EventLog.fromEvent(e, 'file', true));
+  // A CSV knows the wall clock; an audio file only its position.
+  const clockAt = (t) => (f.csv && f.startWall !== null ? fmtClock(new Date(f.startWall + t * 1000)) : 'file');
+  const entries = f.events.map((e) => EventLog.fromEvent(e, clockAt(e.t), true));
   for (const row of f.rows) {
     recorder.add(row);
     for (const a of monitor.update(row).raised) {
-      entries.push({ clock: 'file', t: row.t, kind: 'alert', title: `Alert: ${ALERT_LABELS[a.id]}`, detail: a.message, seekable: true });
+      entries.push({ clock: clockAt(row.t), t: row.t, kind: 'alert', title: `Alert: ${ALERT_LABELS[a.id]}`, detail: a.message, seekable: true });
     }
   }
   entries.sort((a, b) => a.t - b.t).forEach((e) => log.add(e));
@@ -496,8 +554,9 @@ function showFileResult(analysisSecs) {
   setText(el.playPos, '0:00');
   // Hum: the whole file's strip, and the final measurement (harmonics, signature).
   if (s.hum && s.hum.last) humView.render(s.hum.last);
-  el.humListen.hidden = false;
+  el.humListen.hidden = !!f.csv;
   setText(el.humListenNote, '');
+  if (f.csv) showMoment(s.duration); // the meters as the session ended
 }
 
 // "Listen to isolated hum" / "off-frequency control": 20 s from the current position,
@@ -554,7 +613,7 @@ async function playFrom(t) {
 }
 
 function togglePlay() {
-  if (!state.file) return;
+  if (!state.file || state.file.csv) return;
   if (state.playing) {
     state.pausedAt = engine.position || 0;
     engine.stopSource();

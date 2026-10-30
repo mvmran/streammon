@@ -75,6 +75,15 @@ entry, to listen from that point with the live meters running.
 The whole file is decoded into memory (about 1.4 GB per hour of stereo audio). Recordings up
 to roughly an hour are fine; cut longer services into parts.
 
+**Reviewing a saved session:** File mode also opens a CSV this app saved (Export CSV or
+Record CSV to disk), however long. It shows the session's summary line (with its start
+time), the timeline, and the event log rebuilt from the CSV, with real clock times and the
+alerts the current settings would have raised. Click the timeline or a log entry to see
+that moment: the meter cards, the hum panel and the last 5/15/60 minutes of the loudness
+and peak charts. A CSV holds one row of readings per second, so there is no audio, spectrum,
+pan map, Stereo by band or hum harmonics, and integrated-loudness resets are only in the JSON
+export.
+
 ## Chrome extension: what viewers hear on YouTube
 
 The extension monitors a YouTube tab's audio, which is exactly what viewers hear after

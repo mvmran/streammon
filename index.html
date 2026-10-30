@@ -53,9 +53,9 @@
     <main>
       <section id="file-panel" class="panel file-panel" hidden>
         <div id="dropzone" class="dropzone" tabindex="0">
-          <p><strong>Drop an audio file here</strong> (WAV, MP3, M4A, FLAC…) or</p>
-          <label class="btn">Choose file<input id="file-input" type="file" accept="audio/*,video/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.opus,.webm,.mp4" hidden /></label>
-          <p class="muted small">Analysed in the browser, faster than real time. Nothing is uploaded.</p>
+          <p><strong>Drop an audio file here</strong> (WAV, MP3, M4A, FLAC…), or a CSV this app saved, or</p>
+          <label class="btn">Choose file<input id="file-input" type="file" accept="audio/*,video/*,.wav,.mp3,.m4a,.aac,.flac,.ogg,.opus,.webm,.mp4,.csv,text/csv" hidden /></label>
+          <p class="muted small">Analysed in the browser, faster than real time. Nothing is uploaded. A CSV shows a past session's timeline, log and readings (no audio or spectrum).</p>
         </div>
         <div id="file-progress" class="progress" hidden><div class="bar"></div><span class="label">Decoding…</span></div>
         <div id="file-result" hidden>
@@ -64,7 +64,7 @@
             <div class="file-actions">
               <button id="play" class="btn" type="button">Play</button>
               <span id="play-pos" class="muted tabular">0:00</span>
-              <span class="muted small" data-help="timeline">Click the timeline or a log entry to play from there.</span>
+              <span id="file-hint" class="muted small" data-help="timeline">Click the timeline or a log entry to play from there.</span>
             </div>
           </div>
           <div id="file-summary" class="file-summary"></div>

@@ -62,6 +62,29 @@ export class HumView {
     this.drawHarmonics();
   }
 
+  // One second of a saved CSV: the hum columns it has (no harmonics or pause lines).
+  renderRow(row) {
+    this.result = null;
+    const status = row.humStatus || 'IDLE';
+    const present = status === 'PRESENT' && Number.isFinite(row.humLevelDb);
+    const detail = present
+      ? `Steady ${row.humFrequencyHz.toFixed(2)} Hz tone, ${fmtDb(row.humProminenceDb, 0)} dB above its surroundings`
+      : status === 'MASKED'
+        ? 'Programme too loud near the mains frequency to judge'
+        : status === 'NOT DETECTED'
+          ? 'No steady hum through the programme'
+          : 'Not measured yet';
+    this.renderStatus(status, detail);
+    setText(this.el.mains, `${row.humMainsHz || this.getConfig().hum.mainsFrequencyHz} Hz mains`);
+    setText(this.el.freq, present ? `${row.humFrequencyHz.toFixed(2)} Hz` : '--');
+    setText(this.el.level, present ? `${fmtDb(row.humLevelDb)} dBFS` : '--');
+    setText(this.el.prominence, present ? `${fmtDb(row.humProminenceDb, 0)} dB` : '--');
+    setText(this.el.quiet, Number.isFinite(row.humPauseDb) ? `${fmtDb(row.humPauseDb)} dBFS this second` : '--');
+    setText(this.el.projected, present && Number.isFinite(row.humProjectedDb) ? `hum would be ${fmtDb(row.humProjectedDb)} dBFS` : '--');
+    for (const k of ['signature', 'below']) setText(this.el[k], '--');
+    this.drawHarmonics();
+  }
+
   renderMains() {
     setText(this.el.mains, `${this.getConfig().hum.mainsFrequencyHz} Hz mains`);
   }

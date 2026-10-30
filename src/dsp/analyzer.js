@@ -9,7 +9,7 @@
 //   onHum(result)    every 0.5 s: mains hum measurement (see hum.js), with audibility
 //   onEvent(event)   clip status changes: { type: 'start' | 'end', status, t, ... };
 //                    hum: { type: 'hum-onset' | 'hum-offset' | 'hum-step' | 'hum-config', t, ... }
-//                    (onset/offset per HUM_LOG, not every PRESENT change: see trackHumLog)
+//                    (onset/offset per HUM_LOG, not every PRESENT change: see HumLog in episodes.js)
 //                    stereo status changes: { type: 'stereo', t, status, detail, previous, previousSeconds }
 //                    (file analysis: MONO, UNBALANCED mono, CHANNEL DEAD or STEREO, i.e. none of these)
 
@@ -20,16 +20,13 @@ import { StereoMeter } from './stereo.js';
 import { StereoBands, StereoStatus, STEREO_RULES, STEREO, CHANNEL_DEAD, deadChannel, deadDetail, monoStatus } from './stereobands.js';
 import { CrestMeter, toDb } from './crest.js';
 import { HumDetector, PRESENT as HUM_PRESENT, NOT_DETECTED as HUM_NOT_DETECTED, MASKED as HUM_MASKED } from './hum.js';
+import { ClipEpisodes, StereoLog, HumLog, HUM_LOG } from './episodes.js';
 
 export { CLEAN, LIMITED, CLIPPING };
 
 const SEVERITY = { [CLEAN]: 0, [LIMITED]: 1, [CLIPPING]: 2 };
 
-// Which hum gets logged. A faint hum at the edge of detection flips in and out of PRESENT
-// (live 2026-10-30: 152 onsets in 2 h for an inaudible -89 dBFS hum), so an episode is
-// logged only for hum at or above the alert level for onSeconds in a row, dated from when
-// it began, and ends after offSeconds without it. On that session: 6 entries.
-export const HUM_LOG = { onSeconds: 10, offSeconds: 30 };
+export { HUM_LOG };
 
 export class StreamAnalyzer {
   constructor(sampleRate, { onFrame = null, onSecond = null, onEvent = null, onHum = null, clipOptions = {}, humOptions = {} } = {}) {
@@ -53,6 +50,10 @@ export class StreamAnalyzer {
     this.bandStereo = onFrame ? new StereoBands(sampleRate, 10, STEREO_RULES.windowFrames) : null;
     this.stereoStatus = onFrame ? new StereoStatus() : null;
     this.crest = new CrestMeter(30); // 3 s
+    const emit = (e) => this.emit(e);
+    this.clipLog = new ClipEpisodes(emit);
+    this.stereoLog = new StereoLog(emit);
+    this.humLog = new HumLog(emit);
     this.reset();
     this.emitHumConfig(); // invalid settings fall back with a logged warning
   }
@@ -73,7 +74,7 @@ export class StreamAnalyzer {
     this.lastHum = null;
     this.humSeconds = { [HUM_PRESENT]: 0, [HUM_NOT_DETECTED]: 0, [HUM_MASKED]: 0 };
     this.humMaxDb = -Infinity;
-    this.humLog = { run: 0, since: 0, active: false, start: 0, lastT: 0 };
+    this.humLog.reset();
     this.frames = 0; // completed 100 ms frames
     this.n = 0; // frames into the current 100 ms frame
     this.f = { peak: 0, tp: 0, ll: 0, rr: 0, lr: 0 };
@@ -86,9 +87,8 @@ export class StreamAnalyzer {
     this.dwellSum = 0;
     this.fullScaleSamples = 0;
     this.lastClip = null;
-    this.status = CLEAN;
-    this.episode = null;
-    this.stereoLog = { candidate: null, since: 0, run: 0, logged: null, loggedSince: 0 };
+    this.clipLog.reset();
+    this.stereoLog.reset();
     this.events = 0;
   }
 
@@ -170,7 +170,7 @@ export class StreamAnalyzer {
         bands,
         stereoStatus: this.lastStereo.status,
         stereoDetail: this.lastStereo.detail,
-        status: this.status,
+        status: this.clipLog.status,
       });
     }
     this.f = { peak: 0, tp: 0, ll: 0, rr: 0, lr: 0 };
@@ -189,8 +189,8 @@ export class StreamAnalyzer {
     this.statusSeconds[c.status]++;
     this.dwellSum += c.dwell;
     this.fullScaleSamples += c.fullScaleSamples;
-    this.trackEpisode(c, t);
-    this.trackHumLog(h, t);
+    this.clipLog.update(c, t);
+    this.humLog.update(h, t, this.hum.opt);
 
     const stereo = this.stereo.current;
     const dead = this.deadSide();
@@ -238,28 +238,10 @@ export class StreamAnalyzer {
     };
     this.s = { peak: 0, tp: 0 };
     // The file worker has no StereoStatus: there no status means ordinary stereo.
-    this.trackStereo(row.stereoStatus || (this.stereoStatus ? null : STEREO), row.stereoDetail, t);
+    this.stereoLog.update(row.stereoStatus || (this.stereoStatus ? null : STEREO), row.stereoDetail, t);
     this.secPause = null;
     this.secPauseCount = 0;
     if (this.onSecond) this.onSecond(row);
-  }
-
-  // Reports a stereo status change once the new status has been judged for
-  // STEREO_RULES.logSeconds in a row, dated from when it began. A second too quiet to
-  // judge (no status) breaks the run, so quiet gaps don't count towards it.
-  trackStereo(status, detail, t) {
-    const s = this.stereoLog;
-    if (status !== s.candidate) {
-      s.candidate = status;
-      s.since = Math.max(0, t - 1);
-      s.run = 0;
-    }
-    if (!status) return;
-    s.run++;
-    if (status === s.logged || s.run < STEREO_RULES.logSeconds) return;
-    this.emit({ type: 'stereo', t: s.since, status, detail, previous: s.logged, previousSeconds: s.logged ? s.since - s.loggedSince : 0 });
-    s.logged = status;
-    s.loggedSince = s.since;
   }
 
   // The detector reports every PRESENT change; the log gets episodes per HUM_LOG instead.
@@ -268,61 +250,6 @@ export class StreamAnalyzer {
     if (e.type === 'hum-onset' || e.type === 'hum-offset') return;
     if (e.type === 'hum-step' && !this.humLog.active) return;
     this.emit(e);
-  }
-
-  // A second counts when the hum is PRESENT at or above the alert level. An episode is
-  // logged after HUM_LOG.onSeconds of those in a row (dated from the first), and ends
-  // HUM_LOG.offSeconds after the last one (dated then).
-  trackHumLog(h, t) {
-    const L = this.humLog;
-    const counts = h && h.present && h.levelDb >= this.hum.opt.alertLevelDbfs;
-    if (!counts) {
-      L.run = 0;
-      if (L.active && t - L.lastT >= HUM_LOG.offSeconds) {
-        L.active = false;
-        this.emit({ type: 'hum-offset', t: L.lastT, status: h ? h.status : HUM_NOT_DETECTED, duration: L.lastT - L.start, belowDb: h && h.present ? this.hum.opt.alertLevelDbfs : null, mainsHz: this.hum.opt.mainsFrequencyHz });
-      }
-      return;
-    }
-    if (L.run++ === 0) L.since = Math.max(0, t - 1);
-    L.lastT = t;
-    if (L.active || L.run < HUM_LOG.onSeconds) return;
-    L.active = true;
-    L.start = L.since;
-    this.emit({ type: 'hum-onset', t: L.since, levelDb: h.levelDb, frequencyHz: h.fundamentalHz, harmonic: h.refHarmonic, mainsHz: this.hum.opt.mainsFrequencyHz });
-  }
-
-  // Reports status episodes: a 'start' when the status worsens or changes, and an
-  // 'end' (with duration and the detectors seen) when it leaves that status.
-  trackEpisode(c, t) {
-    if (c.status === this.status) {
-      if (this.episode) {
-        for (const d of c.detectors) if (!this.episode.detectors.includes(d)) this.episode.detectors.push(d);
-        this.episode.maxDwellRate = Math.max(this.episode.maxDwellRate, c.dwellRate);
-        this.episode.fullScaleSamples += c.fullScaleSamples;
-      }
-      return;
-    }
-    if (this.episode) {
-      const e = this.episode;
-      this.emit({ ...e, type: 'end', t, duration: t - e.start, detectors: [...e.detectors] });
-      this.episode = null;
-    }
-    this.status = c.status;
-    if (c.status !== CLEAN) {
-      // The status is evaluated at the end of each second, so the episode began a second ago.
-      const start = Math.max(0, t - 1);
-      this.episode = {
-        status: c.status,
-        start,
-        ceilingDb: c.ceilingDb,
-        detectors: [...c.detectors],
-        maxDwellRate: c.dwellRate,
-        fullScaleSamples: c.fullScaleSamples,
-        pileRatio: c.pileRatio,
-      };
-      this.emit({ ...this.episode, type: 'start', t: start, detectors: [...c.detectors] });
-    }
   }
 
   emit(e) {
@@ -387,13 +314,7 @@ export class StreamAnalyzer {
 
   // Closes any open episode (end of file / stop). Safe to call more than once.
   finish() {
-    if (this.episode) {
-      const e = this.episode;
-      const t = this.elapsed;
-      this.emit({ ...e, type: 'end', t, duration: t - e.start, detectors: [...e.detectors] });
-      this.episode = null;
-      this.status = CLEAN;
-    }
+    this.clipLog.finish(this.elapsed);
   }
 
   summary() {

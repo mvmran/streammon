@@ -38,7 +38,7 @@ export const HELP = {
   'hum-harmonics':
     'Hum harmonics at 1×, 2×, 3×… the mains frequency, in dB relative to the fundamental, averaged in step with the mains so programme sound averages away. Solid: clearly above the noise floor; faded: tentative; outline: below the floor (not measurable here). Strong 3rd and 5th hint at a ground loop or unbalanced line; strong 2nd and 4th at a rectifier or power supply. A hint, not a verdict.',
   timeline:
-    'The whole file: short-term loudness (blue) and the peak of each second (orange), with the status strip underneath. Click anywhere to listen from that point with the meters running.',
+    'The whole file: short-term loudness (blue) and the peak of each second (orange), with the status strip underneath. Click anywhere to listen from that point with the meters running. For a saved CSV there is no audio: a click shows the readings, the loudness history and the peaks at that moment, and the log is rebuilt from the CSV with the current alert settings (alerts as the rules would have raised them; integrated-loudness resets are only in the JSON export).',
 };
 
 const SHOW_DELAY_MS = 350;

@@ -106,6 +106,24 @@ async function main() {
     check(true, `isolated hum plays (${await page.textContent('#hum-listen-note')})`);
     await page.locator('section.hum').screenshot({ path: join(OUT, 'hum-panel.png') });
 
+    console.log('Saved CSV in file mode (the hum file, exported and opened again):');
+    const [download] = await Promise.all([page.waitForEvent('download'), page.click('#export-csv')]);
+    const csvPath = join(OUT, 'session.csv');
+    await download.saveAs(csvPath);
+    await page.setInputFiles('#file-input', csvPath);
+    await page.waitForFunction(() => document.getElementById('file-name').textContent === 'session.csv', null, { timeout: 10000 });
+    const csvSummary = await page.textContent('#file-summary');
+    check(/Duration\s*0:39/.test(csvSummary) && /Integrated\s*−\d/.test(csvSummary), `CSV summary (${csvSummary.slice(0, 80)}…)`);
+    check(await page.isHidden('#play'), 'no Play button for a CSV');
+    check(/Mains hum detected/.test(await page.textContent('#log-body')), 'log rebuilt from the CSV (hum onset)');
+    const tlc = await page.locator('#timeline').boundingBox();
+    await page.click('#timeline', { position: { x: tlc.width * 0.5, y: tlc.height / 2 } });
+    await page.waitForTimeout(300);
+    check(/^0:(1[5-9]|2\d)$/.test(await page.textContent('#play-pos')), `a timeline click shows that moment (${await page.textContent('#play-pos')})`);
+    check((await page.textContent('#hum-status-text')) === 'PRESENT', `hum panel shows that second (${await page.textContent('#hum-status-text')})`);
+    check(/^−\d/.test(await page.textContent('#st')), `meters show that second (short-term ${await page.textContent('#st')})`);
+    await page.screenshot({ path: join(OUT, 'csv-mode.png'), fullPage: true });
+
     console.log('Audio input device (fake device playing 18Oct2026-30, clipped):');
     await page.selectOption('#source', 'device');
     await page.click('#start');
