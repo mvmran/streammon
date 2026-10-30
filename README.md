@@ -81,7 +81,8 @@ time), the timeline, and the event log rebuilt from the CSV, with real clock tim
 alerts the current settings would have raised. Click the timeline or a log entry to see
 that moment, or hold the mouse button down and drag along the timeline to watch it change:
 the meter cards, the hum panel and the last 5/15/60 minutes of the loudness and peak
-charts. A CSV holds one row of readings per second, so there is no audio, spectrum,
+charts. The **←** and **→** keys step one second (**Shift**: 10 s, **Ctrl**: 1 minute);
+hold one down to keep going. A CSV holds one row of readings per second, so there is no audio, spectrum,
 pan map, Stereo by band or hum harmonics, and integrated-loudness resets are only in the JSON
 export.
 

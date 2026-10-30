@@ -25,7 +25,7 @@ const el = {
   source: $('source'), device: $('device'), deviceField: $('device-field'), start: $('start'), stop: $('stop'), reset: $('reset'),
   wallclock: $('wallclock'), elapsed: $('elapsed'), tabReminder: $('tab-reminder'), error: $('error'),
   alerts: $('alerts'), filePanel: $('file-panel'), dropzone: $('dropzone'), fileInput: $('file-input'),
-  fileProgress: $('file-progress'), fileResult: $('file-result'), fileName: $('file-name'), fileSummary: $('file-summary'), fileHint: $('file-hint'),
+  fileProgress: $('file-progress'), fileResult: $('file-result'), fileName: $('file-name'), fileSummary: $('file-summary'), fileHint: $('file-hint'), scrubKeys: $('scrub-keys'),
   play: $('play'), playPos: $('play-pos'), exportCsv: $('export-csv'), exportJson: $('export-json'),
   recordDisk: $('record-disk'), clearLog: $('clear-log'), dRate: $('d-rate'),
   humListen: $('hum-listen'), humGain: $('hum-gain'), humListenHum: $('hum-listen-hum'), humListenCtl: $('hum-listen-ctl'),
@@ -547,7 +547,8 @@ function showFileResult(analysisSecs, moment = null) {
   ].map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('');
   setText(el.dRate, f.csv ? '--' : `${s.sampleRate} Hz`);
   el.play.hidden = !!f.csv;
-  setText(el.fileHint, f.csv ? 'Saved session: click or drag along the timeline, or click a log entry, to see that moment.' : 'Click the timeline or a log entry to play from there.');
+  el.scrubKeys.hidden = !f.csv;
+  setText(el.fileHint, f.csv ? 'Saved session: click the timeline or a log entry to see that moment.' : 'Click the timeline or a log entry to play from there.');
 
   timeline.setData(f.rows, 0, s.duration);
   timeline.setCursor(null);
@@ -703,6 +704,20 @@ el.dropzone.addEventListener('drop', (e) => {
   e.stopPropagation(); // the window's drop handler below would load it a second time
   el.dropzone.classList.remove('over');
   handleFile(e.dataTransfer.files[0]);
+});
+// A saved CSV: ←/→ step a second, with Shift 10 s, with Ctrl a minute; holding the key
+// keeps going. Not while typing in a field or with the settings open.
+const SCRUB_KEYS = { ArrowLeft: -1, ArrowRight: 1 };
+window.addEventListener('keydown', (e) => {
+  const dir = SCRUB_KEYS[e.key];
+  const f = state.file;
+  if (!dir || state.mode !== 'file' || !f || !f.csv || e.altKey || e.metaKey) return;
+  // (The file chooser keeps the focus after a file is picked: that one doesn't count.)
+  if (e.target instanceof Element && e.target.closest('input:not([type=file]), select, textarea, dialog, [contenteditable]')) return;
+  e.preventDefault();
+  const step = e.ctrlKey ? 60 : e.shiftKey ? 10 : 1;
+  const from = state.lastRow ? state.lastRow.t : 0;
+  showMoment(timeline.nearest(from + dir * step));
 });
 // Dropping anywhere on the page in file mode loads the file rather than navigating away.
 window.addEventListener('dragover', (e) => e.preventDefault());
