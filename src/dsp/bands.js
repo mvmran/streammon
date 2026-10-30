@@ -6,6 +6,35 @@ const BASE = 1000;
 // ISO 266 nominal 1/3-octave centres from 25 Hz to 16 kHz (base-2 exact centres).
 export const THIRD_OCTAVE_CENTRES = Array.from({ length: 29 }, (_, i) => BASE * Math.pow(2, (i - 16) / 3));
 export const OCTAVE_CENTRES = [31.25, 62.5, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+// Their nominal names, as in the CSV column names.
+export const THIRD_OCTAVE_LABELS = ['25', '31.5', '40', '50', '63', '80', '100', '125', '160', '200', '250', '315', '400', '500', '630', '800', '1k', '1.25k', '1.6k', '2k', '2.5k', '3.15k', '4k', '5k', '6.3k', '8k', '10k', '12.5k', '16k'];
+export const OCTAVE_LABELS = ['31', '63', '125', '250', '500', '1k', '2k', '4k', '8k', '16k'];
+
+// The 1/3-octave spectrum of each second, for the CSV: the power mean of the frames' levels
+// (one add() per 100 ms analyzer frame); take() returns it in dB and starts the next second
+// (null if no frame came).
+export class SpectrumSecond {
+  constructor() {
+    this.reset();
+  }
+
+  reset() {
+    this.power = new Float64Array(THIRD_OCTAVE_CENTRES.length);
+    this.n = 0;
+  }
+
+  add(levelsDb) {
+    if (!levelsDb) return;
+    for (let i = 0; i < this.power.length; i++) this.power[i] += Number.isFinite(levelsDb[i]) ? Math.pow(10, levelsDb[i] / 10) : 0;
+    this.n++;
+  }
+
+  take() {
+    const out = this.n ? Array.from(this.power, (p) => 10 * Math.log10(p / this.n)) : null;
+    this.reset();
+    return out;
+  }
+}
 
 // Sums bin powers between f/2^(w/2) and f*2^(w/2) for each centre (w in octaves).
 // fine: { db, binHz }, the first bins of a longer FFT of the same audio (an AnalyserNode

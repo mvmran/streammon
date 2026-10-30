@@ -126,6 +126,8 @@ async function main() {
     const csv = await readFile(await dl.path(), 'utf8');
     const lines = csv.trim().split('\n');
     check(lines[0].startsWith('wall_clock,elapsed_s') && lines.length > 5, `CSV export has ${lines.length - 1} rows`);
+    const head = lines[0].split(','), last = lines.at(-1).split(',');
+    check(last[head.indexOf('spec_1k_db')] !== '' && last[head.indexOf('sb_1k_corr')] !== '', `CSV has the spectrum and Stereo by band (1k: ${last[head.indexOf('spec_1k_db')]} dB, corr ${last[head.indexOf('sb_1k_corr')]})`);
     const [dj] = await Promise.all([panel.waitForEvent('download'), panel.click('#export-json')]);
     const json = JSON.parse(await readFile(await dj.path(), 'utf8'));
     check(json.summary && json.summary.overallStatus === 'CLIPPING', `JSON summary overall status ${json.summary && json.summary.overallStatus}`);

@@ -12,6 +12,7 @@ import { SessionRecorder } from './src/ui/session.js';
 import { loadAlertConfig } from './src/ui/settings.js';
 import { fmtClock, fmtStamp, fileStamp } from './src/ui/format.js';
 import { readFine } from './src/ui/spectrum.js';
+import { SpectrumSecond, thirdOctaveLevels } from './src/dsp/bands.js';
 import { CHANNEL } from './client.js';
 
 const HISTORY_MAX = 3600;
@@ -37,6 +38,7 @@ const s = {
 let testAudio = null;
 const spectrumWanted = new Map(); // view id -> Date.now() until which it wants spectrum data
 let spectrumBufs = null; // reused: the BroadcastChannel copies them anyway
+const spectrumSecond = new SpectrumSecond(); // each second's 1/3-octave spectrum, for the CSV
 
 const engine = new AudioEngine({
   onFrame,
@@ -75,6 +77,7 @@ function onSecond(row) {
   const wall = new Date(s.startWall + row.t * 1000);
   row.wallClock = fmtStamp(wall);
   row.clock = fmtClock(wall);
+  row.spectrumDb = spectrumSecond.take();
   recorder.add(row);
   s.lastRow = row;
   s.history.push(row);
@@ -151,6 +154,7 @@ function clearSession() {
     alerts: new AlertMonitor(loadAlertConfig()),
   });
   recorder.clear();
+  spectrumSecond.reset();
 }
 
 // Clears the board (e.g. for a new song) without stopping the capture.
@@ -190,18 +194,21 @@ async function stop(reason = 'Stopped') {
 const SPECTRUM_KEEP_MS = 75000;
 
 // One spectrum message per analyzer frame (100 ms of audio), stamped with the frame's
-// audio-clock time so the dashboard's spectrogram rows are evenly spaced.
+// audio-clock time so the dashboard's spectrogram rows are evenly spaced. The mix spectrum
+// is read every frame whether or not a dashboard is open: its 1/3-octave levels go in the CSV.
 function sendSpectrum(f) {
-  const now = Date.now();
-  for (const [view, until] of spectrumWanted) if (until < now) spectrumWanted.delete(view);
-  if (!spectrumWanted.size || !engine.analyser) return;
+  if (!engine.analyser) return;
   const n = engine.analyser.frequencyBinCount;
   if (!spectrumBufs || spectrumBufs[0].length !== n) spectrumBufs = [0, 1, 2].map(() => new Float32Array(n));
   const [data, left, right] = spectrumBufs;
   engine.analyser.getFloatFrequencyData(data);
+  const fine = readFine(engine.analyserFine, engine.ctx.sampleRate); // a few hundred bins below FINE_MAX_HZ
+  spectrumSecond.add(thirdOctaveLevels(data, engine.ctx.sampleRate, fine));
+  const now = Date.now();
+  for (const [view, until] of spectrumWanted) if (until < now) spectrumWanted.delete(view);
+  if (!spectrumWanted.size) return;
   engine.analyserL.getFloatFrequencyData(left);
   engine.analyserR.getFloatFrequencyData(right);
-  const fine = readFine(engine.analyserFine, engine.ctx.sampleRate); // a few hundred bins below FINE_MAX_HZ
   broadcast({ type: 'spectrum', data, left, right, fine, sampleRate: engine.ctx.sampleRate, t: f.t });
 }
 

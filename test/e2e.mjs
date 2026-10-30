@@ -8,7 +8,7 @@
 // One-time setup (no sudo): `npx playwright-core install chromium`.
 
 import { createServer } from 'node:http';
-import { readFile, mkdir } from 'node:fs/promises';
+import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { chromium } from 'playwright-core';
 
@@ -246,6 +246,23 @@ async function main() {
     const lines = csv.trim().split('\n');
     check(lines[0].startsWith('wall_clock,elapsed_s') && lines.length > 3, `CSV has ${lines.length - 1} rows`);
     check(Number(lines[1].split(',')[1]) <= 1, `CSV starts at the Reset (first row at ${lines[1].split(',')[1]} s)`);
+    const head = lines[0].split(',');
+    const last = lines.at(-1).split(',');
+    check(last[head.indexOf('spec_1k_db')] !== '' && last[head.indexOf('sb_1k_corr')] !== '', `live CSV has the spectrum and Stereo by band (1k: ${last[head.indexOf('spec_1k_db')]} dB, corr ${last[head.indexOf('sb_1k_corr')]})`);
+
+    console.log('That live CSV opened in file mode (Stereo by band, spectrum):');
+    const livePath = join(OUT, 'live-session.csv');
+    await writeFile(livePath, csv);
+    await page.selectOption('#source', 'file');
+    await page.setInputFiles('#file-input', livePath);
+    await page.waitForFunction(() => document.getElementById('file-name').textContent === 'live-session.csv', null, { timeout: 10000 });
+    await page.waitForTimeout(300); // the spectrum is drawn on the next UI tick
+    const balance = await page.$$eval('#balance .v', (vs) => vs.map((v) => v.textContent));
+    check(balance.filter((v) => v !== '--').length >= 8, `octave balance from the CSV (${balance.join(' ')})`);
+    const bandsNote = await page.textContent('#stereo-bands-note');
+    check(bandsNote && bandsNote !== '--', `Stereo by band from the CSV (${bandsNote})`);
+    await page.locator('#stereo-bands').scrollIntoViewIfNeeded();
+    await page.screenshot({ path: join(OUT, 'csv-stereo-spectrum.png'), fullPage: false });
 
     console.log('Browser tab mode (test player tab playing 18Oct2026-30):');
     const player = await context.newPage();

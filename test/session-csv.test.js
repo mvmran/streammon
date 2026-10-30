@@ -93,6 +93,17 @@ describe('session CSV', () => {
     assert.match(statusDetail(clipped), /^Hitting 0 dBFS: \d+ samples\/s$/);
   });
 
+  test('Stereo by band and the spectrum come back (live rows have them)', () => {
+    const live = s.rows.map((r) => ({ ...r, spectrumDb: Array.from({ length: 29 }, (_, i) => -40 - i), bands: r.bands }));
+    const back = readSessionCsv(csvHeader() + live.map(csvRow).join('')).rows;
+    assert.deepEqual(back[20].spectrumDb.slice(0, 3), [-40, -41, -42]);
+    assert.equal(back[20].bands, null, 'no band readings in rows from file analysis');
+    const withBands = { ...s.rows[20], bands: [{ fc: 31.25, correlation: 0.987, balanceDb: -1.2, levelDb: -48.3 }, ...Array.from({ length: 9 }, (_, i) => ({ fc: 62.5 * 2 ** i, correlation: null, balanceDb: null, levelDb: -Infinity }))] };
+    const one = readSessionCsv(csvHeader() + csvRow(withBands)).rows[0];
+    assert.deepEqual(one.bands[0], { fc: 31.25, correlation: 0.987, balanceDb: -1.2, levelDb: -48.3 });
+    assert.equal(one.bands[5].levelDb, -Infinity);
+  });
+
   test('a log entry is shown at the second it happened in', () => {
     const start = sessionEvents(rows, { alertLevelDbfs: -85 }).find((e) => e.type === 'start' && e.status === 'CLIPPING');
     assert.equal(rowAt(rows, start.t).status, 'CLIPPING', `row at ${start.t}`);

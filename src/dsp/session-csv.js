@@ -88,8 +88,13 @@ export function readSessionCsv(text) {
   for (const rec of records) {
     const row = {};
     cols.forEach((c, i) => {
-      if (c) row[c.field] = c.parse(rec[i]);
+      if (!c) return;
+      if (c.set) c.set(row, c.parse(rec[i]));
+      else row[c.field] = c.parse(rec[i]);
     });
+    // A second without band or spectrum readings (file analysis, or before they existed).
+    if (row.bands && row.bands.every((b) => b.levelDb === null)) row.bands = null;
+    if (row.spectrumDb && row.spectrumDb.every((v) => v === null)) row.spectrumDb = null;
     if (!Number.isFinite(row.t) || !row.status) continue;
     row.detectors ??= [];
     for (const k of ['dwellRate', 'pileRatio', 'pinned']) row[k] ??= 0;

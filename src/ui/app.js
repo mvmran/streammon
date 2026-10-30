@@ -6,6 +6,7 @@ import { AlertMonitor, ALERT_LABELS, humOptionsFrom } from '../dsp/alerts.js';
 import { isolateHum } from '../dsp/hum-isolate.js';
 import { summaryJson, csvHeader, csvRow } from '../dsp/report.js';
 import { readSessionCsv, sessionEvents, sessionSummary, rowAt } from '../dsp/session-csv.js';
+import { SpectrumSecond } from '../dsp/bands.js';
 import { TimeChart } from './charts.js';
 import { SpectrumView } from './spectrum.js';
 import { PanMapView } from './pan-map.js';
@@ -112,6 +113,7 @@ const spectrum = new SpectrumView({ bands: $('bands'), sgram: $('sgram'), balanc
 spectrum.setSpectrogramFloor(state.alertCfg.display.spectrogramFloorDb);
 const panMap = new PanMapView($('pan-map'));
 let panL = null, panR = null; // reused spectrum buffers
+const spectrumSecond = new SpectrumSecond(); // each second's 1/3-octave spectrum, for the CSV
 
 const meters = new MetersView(() => state.alertCfg);
 const xFormat = timeFormatter(() => state);
@@ -125,9 +127,11 @@ let timeline = null; // created when the file panel is first shown (it needs a l
 // Data from the analyzer
 
 function onRow(row) {
+  const spectrumDb = spectrumSecond.take();
   if (state.mode === 'file') {
     row.t += state.playOffset;
   } else {
+    row.spectrumDb = spectrumDb;
     const wall = new Date(state.startWall + row.t * 1000);
     row.wallClock = fmtStamp(wall);
     row.clock = fmtClock(wall);
@@ -203,6 +207,7 @@ function ingestSpectrum(f) {
   const sr = engine.ctx.sampleRate;
   const t = frameTime(f);
   spectrum.update(engine.analyser, sr, t, engine.analyserFine);
+  spectrumSecond.add(spectrum.levels);
   const n = engine.analyserL.frequencyBinCount;
   if (!panL || panL.length !== n) [panL, panR] = [new Float32Array(n), new Float32Array(n)];
   engine.analyserL.getFloatFrequencyData(panL);
@@ -320,6 +325,7 @@ async function startLive() {
 const RESET_CONFIRM_SECONDS = 600;
 
 function beginSession() {
+  spectrumSecond.reset();
   state.startWall = Date.now();
   state.history = [];
   state.lastRow = null;
@@ -514,6 +520,7 @@ function showMoment(row) {
   meters.renderFrame(row);
   meters.renderRow(row);
   humView.renderRow(row);
+  spectrum.showSaved(rows, i); // CSVs from 2026-10-31 on: spectrum bars, octave balance, coarse spectrogram
   redrawCharts();
   timeline.setCursor(row.t);
   setText(el.playPos, xFormat(row.t, row));

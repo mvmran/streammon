@@ -234,6 +234,8 @@ export class StreamAnalyzer {
       humPauseDb: this.secPause ? this.secPause.levelDb : null,
       humPauseHz: this.secPause ? this.secPause.lines.map((k) => k * this.hum.opt.mainsFrequencyHz) : null,
       humPauseReadings: this.secPauseCount,
+      // Stereo by band over this second (live only: the file worker has no band filters).
+      bands: this.bandStereo ? this.bandStereo.current : null,
     };
     this.s = { peak: 0, tp: 0 };
     // The file worker has no StereoStatus: there no status means ordinary stereo.
