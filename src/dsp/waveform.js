@@ -9,10 +9,19 @@
 //     of its own maximum at least CLIP.flatRatio times as long as the wave took to climb the
 //     last 6 dB to it (a rounded peak: about 1), for at least CLIP.minTopMs; it comes within
 //     CLIP.nearCeilingDb of the clip ceiling; and at least CLIP.wallCount other flat tops of
-//     the same polarity sit at the same level (± CLIP.wallDb) within ± CLIP.wallSec.
-// Measured on test-audio/ (2026-11-15, flat tops per second without the status condition):
-// clipped recordings 7-15/s, the limited one 0.3/s, clean ones and speech 0; with it, the
-// limited one 0. One peak's shape can't tell a limiter's occasional flat-ish top from a
+//     the same polarity sit at the same level (± CLIP.wallDb) within ± CLIP.wallSec; or
+//   - it holds level at the ceiling, also only where it fed a CLIPPING verdict: at least
+//     CLIP.levelMinMs of samples, all within CLIP.levelNearDb of the clip ceiling, stay within
+//     CLIP.levelDb of each other (only that level stretch is marked; a ripple sample poking
+//     above a plateau doesn't cut it short).
+// Two rules because clipping looks two ways after encoding: the 18 Oct recordings' tops
+// ripple by about ±0.5 dB, so they are long against the climb (the first rule: 7-15/s); the
+// 2026-11-15 service (tab capture, a hard ceiling at -6 dBFS) has level tops on slower waves,
+// whose long climb hid them from the first rule (about 0.4/s) but not the second.
+// Measured with both, ignoring the status (per second): 18 Oct 30 min 10.3, the service's
+// three freezes 11-12, the limited recording 1.6, speech 0.48, clean ones 0-0.58; with the
+// status condition, limited and clean audio 0. A tolerance of 0.2 dB caught 6-9/s of the
+// service's tops (clean ≤ 0.2/s); 0.3 dB/0.25 ms 13-15/s but clean up to 0.9/s. One peak's shape can't tell a limiter's occasional flat-ish top from a
 // clip, so the status (which judges many peaks) decides when flat tops count.
 //
 // A snapshot is { sampleRate, start, left, right, frameLen, ceilStart, ceilings, secLen,
@@ -47,6 +56,9 @@ export const CLIP = {
   wallCount: 6,
   wallDb: 0.5,
   wallSec: 1,
+  levelNearDb: 0.5,
+  levelDb: 0.3,
+  levelMinMs: 0.3,
 };
 
 export const STATUS_CODE = { [CLEAN]: 0, [LIMITED]: 1, [CLIPPING]: 2 };
@@ -206,6 +218,27 @@ export function inClipping(c, i, ahead) {
   return false;
 }
 
+// The longest stretch of x[s..e) whose magnitudes are all at least `lo` and within a factor
+// 1/k (k < 1) of each other: { s, e } (e exclusive), or null.
+function levelRun(x, s, e, lo, k) {
+  let best = null;
+  for (let i = s; i < e; i++) {
+    let mx = Math.abs(x[i]), mn = mx;
+    if (mx < lo) continue;
+    let j = i + 1;
+    for (; j < e; j++) {
+      const a = Math.abs(x[j]);
+      if (a < lo) break;
+      const nmx = a > mx ? a : mx, nmn = a < mn ? a : mn;
+      if (nmn < nmx * k) break;
+      mx = nmx;
+      mn = nmn;
+    }
+    if (!best || j - i > best.e - best.s) best = { s: i, e: j };
+  }
+  return best;
+}
+
 // The clipped peaks of a snapshot (see the top of this file): [{ kind: 'flat' | 'full', ch,
 // pol: 1 | -1, s, e, peakDb }] with [s, e) the flat top or the full-scale run, sorted by start.
 export function findClipped(snap, clipOptions = {}) {
@@ -214,7 +247,9 @@ export function findClipped(snap, clipOptions = {}) {
   const chans = sameSamples(snap.left, snap.right) ? [snap.left] : [snap.left, snap.right];
   const minTop = Math.max(2, Math.round((CLIP.minTopMs / 1000) * sr));
   const topK = Math.pow(10, -CLIP.topDb / 20);
-  const full = [], flat = [];
+  const full = [], flat = [], level = [];
+  const levelMin = Math.max(2, Math.round((CLIP.levelMinMs / 1000) * sr));
+  const levelK = Math.pow(10, -CLIP.levelDb / 20);
   chans.forEach((x, ch) => {
     const n = x.length;
     // Full-scale runs, per polarity.
@@ -254,6 +289,10 @@ export function findClipped(snap, clipOptions = {}) {
           while (f < i - 1 && Math.abs(x[f + 1]) >= half) f++;
           const w = b - a + 1, climb = (a - r + (f - b)) / 2;
           if (w >= minTop && w >= CLIP.flatRatio * Math.max(1, climb)) flat.push({ kind: 'flat', ch, pol, s: a, e: b + 1, peakDb, at });
+          if (peakDb >= ceil - CLIP.levelNearDb) {
+            const run = levelRun(x, s, i, Math.pow(10, (ceil - CLIP.levelNearDb) / 20), levelK);
+            if (run && run.e - run.s >= levelMin) level.push({ kind: 'flat', ch, pol, s: run.s, e: run.e, peakDb, at });
+          }
         }
       }
       s = i;
@@ -264,14 +303,20 @@ export function findClipped(snap, clipOptions = {}) {
   flat.sort((p, q) => p.at - q.at);
   const reach = CLIP.wallSec * sr;
   const clipped = [];
+  const done = new Set(); // `${ch}:${at}` of half-cycles marked
   for (let i = 0; i < flat.length; i++) {
     const p = flat[i];
     if (!inClipping(snap, p.at, ahead)) continue;
     let others = 0;
     for (let j = i - 1; j >= 0 && p.at - flat[j].at <= reach; j--) if (flat[j].pol === p.pol && Math.abs(flat[j].peakDb - p.peakDb) <= CLIP.wallDb) others++;
     for (let j = i + 1; j < flat.length && flat[j].at - p.at <= reach; j++) if (flat[j].pol === p.pol && Math.abs(flat[j].peakDb - p.peakDb) <= CLIP.wallDb) others++;
-    if (others >= CLIP.wallCount) clipped.push({ kind: 'flat', ch: p.ch, pol: p.pol, s: p.s, e: p.e, peakDb: p.peakDb });
+    if (others >= CLIP.wallCount) {
+      clipped.push({ kind: 'flat', ch: p.ch, pol: p.pol, s: p.s, e: p.e, peakDb: p.peakDb });
+      done.add(`${p.ch}:${p.at}`);
+    }
   }
+  // Held level, for peaks the first rule didn't mark.
+  for (const p of level) if (!done.has(`${p.ch}:${p.at}`) && inClipping(snap, p.at, ahead)) clipped.push({ kind: 'flat', ch: p.ch, pol: p.pol, s: p.s, e: p.e, peakDb: p.peakDb });
   return [...clipped, ...full].sort((p, q) => p.s - q.s || p.ch - q.ch);
 }
 

@@ -4,7 +4,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { StreamAnalyzer } from '../src/dsp/analyzer.js';
 import { WAVE, CLIP, STATUS_CODE, NO_STATUS, WaveRing, bufferSnapshot, findClipped, eventCapture, rangeCapture, captureJson, captureFromJson, inClipping } from '../src/dsp/waveform.js';
 import { syntheticSignals, programme, hardClip, lowpass, scale } from './synthetic.js';
@@ -73,12 +73,16 @@ describe('captures', () => {
     const minTop = Math.round((CLIP.minTopMs / 1000) * SR);
     for (const r of flat) {
       assert.ok(r.e - r.s >= minTop);
-      // The whole top is within topDb of the peak, which is near -5 dBFS (-3 dB, then -2 dB).
+      // The marked stretch is level (within topDb end to end) and near the clip level, -5 dBFS
+      // (clipped at -3 dB, then -2 dB).
+      let lo = Infinity, hi = -Infinity;
       for (let i = r.s; i < r.e; i++) {
         const db = 20 * Math.log10(Math.abs((c.left[i] / 32767) * c.scale));
-        assert.ok(r.peakDb - db <= CLIP.topDb + 0.01, `sample ${i}: ${db.toFixed(2)} vs top ${r.peakDb.toFixed(2)}`);
+        lo = Math.min(lo, db);
+        hi = Math.max(hi, db);
       }
-      assert.ok(Math.abs(r.peakDb - -5) < 1, `top at ${r.peakDb.toFixed(2)} dBFS`);
+      assert.ok(hi - lo <= CLIP.topDb + 0.01, `stretch at ${r.s} spans ${lo.toFixed(2)}…${hi.toFixed(2)} dBFS`);
+      assert.ok(Math.abs(hi - -5) < 1, `top at ${hi.toFixed(2)} dBFS`);
     }
     // Each in a second that reads CLIPPING or fed the verdict of one (2 s ahead at most).
     for (const r of findClipped(s)) assert.ok(inClipping(s, r.s, 2), `mark at ${r.s}`);
@@ -222,6 +226,47 @@ const RECORDINGS = [
   ['Reference_recording.wav', 'clean', () => true, 0],
   ['Reference_speech_recording.wav', 'speech', () => true, 0],
 ];
+// The 2026-11-15 service (tab capture): three 5-10 s freezes from its JSON log, every second
+// CLIPPING (hard ceiling at -6 dBFS, dead-level tops on slow waves: the held-level rule).
+const SERVICE = dir + '2026-11-15-service-freezes.json';
+test('2026-11-15 service freezes: held-level tops at the ceiling are marked', { skip: !existsSync(SERVICE) && 'test audio missing' }, () => {
+  const j = JSON.parse(readFileSync(SERVICE, 'utf8'));
+  for (const w of j.waveforms.filter((x) => x.kind === 'freeze')) {
+    const c = captureFromJson(w), k = c.scale / 32767;
+    const L = Float32Array.from(c.left, (v) => v * k), R = Float32Array.from(c.right, (v) => v * k);
+    const secs = Math.ceil(c.n / c.sampleRate) + 1;
+    const snap = { ...c, left: L, right: R, ceilings: Float32Array.from(c.ceilings), secLen: c.sampleRate, secStart: 0, statuses: new Uint8Array(secs).fill(STATUS_CODE.CLIPPING) };
+    const marks = findClipped(snap);
+    const perSec = marks.length / (c.n / c.sampleRate);
+    console.log(`# service ${w.label}: ${perSec.toFixed(2)} clipped peaks/s`);
+    assert.ok(perSec >= 5, `${w.label}: ${perSec.toFixed(2)} a second`);
+    // Each marked stretch is level: within 0.5 dB at most (either rule).
+    for (const m of marks) {
+      const x = m.ch ? R : L;
+      let lo = Infinity, hi = 0;
+      for (let i = m.s; i < m.e; i++) (lo = Math.min(lo, Math.abs(x[i]))), (hi = Math.max(hi, Math.abs(x[i])));
+      assert.ok(20 * Math.log10(hi / lo) <= CLIP.topDb + 0.01);
+    }
+  }
+});
+
+// Without the status condition the rules fire far less on limited, clean or speech audio than
+// on clipped audio (measured 2026-11-15: limited 1.6/s, speech 0.48/s, clean 0-0.58/s, against
+// 10-12/s clipped); with it, never (above).
+test('limited, clean and speech recordings: few clipped peaks even ignoring the status', { skip: !existsSync(dir + '18Oct2026-42_min_mark.wav') && 'test audio missing' }, () => {
+  for (const name of ['18Oct2026-42_min_mark.wav', '18Oct2026-36_min_mark.wav', '27Sep2026-92_min_mark.wav', 'Reference_recording.wav', 'Reference_quieter_recording.wav', 'Reference_speech_recording.wav']) {
+    if (!existsSync(dir + name)) continue;
+    const { sampleRate, channels } = readWav(dir + name);
+    const [L, R = L] = channels;
+    const snap = bufferSnapshot(L, R, sampleRate, 0, L.length, []);
+    snap.statuses = snap.statuses.fill(STATUS_CODE.CLIPPING);
+    const perSec = findClipped(snap).filter((m) => m.kind === 'flat').length / (L.length / sampleRate);
+    console.log(`# ${name} ignoring status: ${perSec.toFixed(2)} clipped peaks/s`);
+    assert.ok(perSec < 0.75 || name.includes('42_min'), `${name}: ${perSec.toFixed(2)} a second`);
+    if (name.includes('42_min')) assert.ok(perSec < 2, `limited: ${perSec.toFixed(2)} a second`);
+  }
+});
+
 const marksCache = new Map();
 for (const [name, what, keep, minPerSec] of RECORDINGS) {
   test(`${name} (${what}): ${minPerSec ? `at least ${minPerSec} clipped peaks a second` : 'no clipped peaks'}`, { skip: !existsSync(dir + name) && 'test audio missing' }, () => {
