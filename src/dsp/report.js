@@ -85,12 +85,13 @@ function csvEscape(s) {
 }
 
 // JSON-friendly summary: replaces non-finite numbers, which JSON cannot represent.
-export function summaryJson(summary, events = [], meta = {}) {
+// `tail` goes after the events (the bulky waveform captures).
+export function summaryJson(summary, events = [], meta = {}, tail = {}) {
   const clean = (v) => {
     if (typeof v === 'number') return Number.isFinite(v) ? Math.round(v * 1000) / 1000 : null;
     if (Array.isArray(v)) return v.map(clean);
     if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, clean(x)]));
     return v;
   };
-  return JSON.stringify(clean({ ...meta, summary, events }), null, 2);
+  return JSON.stringify(clean({ ...meta, summary, events, ...tail }), null, 2);
 }

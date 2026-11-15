@@ -12,6 +12,10 @@
 //                    (onset/offset per HUM_LOG, not every PRESENT change: see HumLog in episodes.js)
 //                    stereo status changes: { type: 'stereo', t, status, detail, previous, previousSeconds }
 //                    (file analysis: MONO, UNBALANCED mono, CHANNEL DEAD or STEREO, i.e. none of these)
+//   onCapture(snap)  when set, the last WAVE.ringSec of samples are kept (waveform.js): at each
+//                    clip 'start' event (which then carries `wave`, an id) the last
+//                    WAVE.searchSec go out as a snapshot { kind: 'event', id, eventT, status, … };
+//                    freeze() returns the whole ring the same way
 
 import { LoudnessMeter } from './loudness.js';
 import { TruePeakChannel } from './truepeak.js';
@@ -21,6 +25,7 @@ import { StereoBands, StereoStatus, STEREO_RULES, STEREO, CHANNEL_DEAD, deadChan
 import { CrestMeter, toDb } from './crest.js';
 import { HumDetector, PRESENT as HUM_PRESENT, NOT_DETECTED as HUM_NOT_DETECTED, MASKED as HUM_MASKED } from './hum.js';
 import { ClipEpisodes, StereoLog, HumLog, HUM_LOG } from './episodes.js';
+import { WaveRing, WAVE } from './waveform.js';
 
 export { CLEAN, LIMITED, CLIPPING };
 
@@ -28,13 +33,16 @@ export { CLEAN, LIMITED, CLIPPING };
 export { HUM_LOG };
 
 export class StreamAnalyzer {
-  constructor(sampleRate, { onFrame = null, onSecond = null, onEvent = null, onHum = null, clipOptions = {}, humOptions = {} } = {}) {
+  constructor(sampleRate, { onFrame = null, onSecond = null, onEvent = null, onHum = null, onCapture = null, clipOptions = {}, humOptions = {} } = {}) {
     this.sampleRate = sampleRate;
     this.frameLen = Math.round(sampleRate * 0.1);
     this.onFrame = onFrame;
     this.onSecond = onSecond;
     this.onEvent = onEvent;
     this.onHum = onHum;
+    this.onCapture = onCapture;
+    // The raw samples behind waveform captures (live and playback only).
+    this.wave = onCapture ? new WaveRing(sampleRate, WAVE.ringSec, this.frameLen) : null;
     this.loudness = new LoudnessMeter(sampleRate);
     this.hum = new HumDetector(sampleRate, humOptions, {
       // The detector counts time from its own (re)start: shift it to session time.
@@ -50,7 +58,7 @@ export class StreamAnalyzer {
     this.stereoStatus = onFrame ? new StereoStatus() : null;
     this.crest = new CrestMeter(30); // 3 s
     const emit = (e) => this.emit(e);
-    this.clipLog = new ClipEpisodes(emit);
+    this.clipLog = new ClipEpisodes((e) => this.clipEvent(e));
     this.stereoLog = new StereoLog(emit);
     this.humLog = new HumLog(emit);
     this.reset();
@@ -90,6 +98,8 @@ export class StreamAnalyzer {
     this.clipLog.reset();
     this.stereoLog.reset();
     this.events = 0;
+    if (this.wave) this.wave.reset();
+    this.captures = 0; // waveform capture ids handed out
   }
 
   get elapsed() {
@@ -110,6 +120,7 @@ export class StreamAnalyzer {
       this.clip.processChannel(0, l, k);
       this.clip.processChannel(1, r, k);
       this.clip.endBlock(k);
+      if (this.wave) this.wave.push(l, r, k);
 
       const f = this.f;
       let peak = f.peak, ll = 0, rr = 0, lr = 0;
@@ -139,6 +150,7 @@ export class StreamAnalyzer {
     const f = this.f;
     this.frames++;
     this.n = 0;
+    if (this.wave) this.wave.endFrame(this.clip.ceilingDb);
     this.stereo.push(f.ll, f.rr, f.lr);
     if (this.bandStereo) this.bandStereo.endFrame();
     this.crest.push(f.peak, f.ll + f.rr, 2 * this.frameLen);
@@ -253,6 +265,21 @@ export class StreamAnalyzer {
     if (e.type === 'hum-onset' || e.type === 'hum-offset') return;
     if (e.type === 'hum-step' && !this.humLog.active) return;
     this.emit(e);
+  }
+
+  // A clip episode starting: with captures on, the event carries the id of the snapshot sent
+  // right after it (the samples that led to the new status).
+  clipEvent(e) {
+    if (!this.wave || e.type !== 'start') return this.emit(e);
+    const id = ++this.captures;
+    this.emit({ ...e, wave: id });
+    this.onCapture({ ...this.wave.snapshot(WAVE.searchSec), kind: 'event', id, eventT: e.t, status: e.status, ceilingDb: e.ceilingDb });
+  }
+
+  // The last WAVE.ringSec of samples as a snapshot (null without captures on).
+  freeze() {
+    if (!this.wave) return null;
+    return { ...this.wave.snapshot(WAVE.ringSec), kind: 'freeze', id: ++this.captures, t: this.elapsed };
   }
 
   emit(e) {

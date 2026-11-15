@@ -14,6 +14,7 @@ class StreamAnalyzerProcessor extends AudioWorkletProcessor {
       onFrame: (frame) => this.port.postMessage({ type: 'frame', frame }),
       onSecond: (row) => this.port.postMessage({ type: 'second', row }),
       onEvent: (event) => this.port.postMessage({ type: 'event', event }),
+      onCapture: po.captures ? (snap) => this.postSnap(snap) : null,
     });
     this.port.onmessage = (e) => {
       if (e.data.type === 'reset') {
@@ -22,6 +23,7 @@ class StreamAnalyzerProcessor extends AudioWorkletProcessor {
       }
       else if (e.data.type === 'reset-peaks') this.analyzer.resetPeaks();
       else if (e.data.type === 'reset-integrated') this.analyzer.resetIntegrated();
+      else if (e.data.type === 'freeze') this.postSnap(this.analyzer.freeze(), e.data.id);
       else if (e.data.type === 'hum-config') this.analyzer.setHumOptions(e.data.options);
       else if (e.data.type === 'finish') {
         this.analyzer.finish();
@@ -30,6 +32,12 @@ class StreamAnalyzerProcessor extends AudioWorkletProcessor {
         this.port.postMessage({ type: 'summary', id: e.data.id, summary: this.analyzer.summary() });
       }
     };
+  }
+
+  // A waveform snapshot (waveform.js), its sample arrays handed over rather than copied.
+  postSnap(snap, id) {
+    const transfer = snap ? [snap.left.buffer, snap.right.buffer, snap.ceilings.buffer] : [];
+    this.port.postMessage({ type: 'wave', id, snap }, transfer);
   }
 
   process(inputs) {

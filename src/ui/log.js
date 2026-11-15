@@ -22,13 +22,20 @@ export function insertByTime(list, entry) {
 export class EventLog {
   // onSeek(t) gets the entry's own time when a seekable row is clicked; seekTitle is the
   // row's tooltip ('Play from here' for audio, something else for a saved CSV).
-  constructor(body, empty, { onSeek } = {}) {
+  // onWave(key) is called by an entry's "Waveform" button (entries with a `wave` key).
+  constructor(body, empty, { onSeek, onWave } = {}) {
     this.body = body;
     this.empty = empty;
     this.onSeek = onSeek;
+    this.onWave = onWave;
     this.seekTitle = 'Play from here';
     this.entries = [];
     body.addEventListener('click', (e) => {
+      const btn = e.target.closest('.wave-link');
+      if (btn) {
+        if (this.onWave) this.onWave(btn.dataset.wave);
+        return;
+      }
       const tr = e.target.closest('tr[data-t]');
       if (tr && this.onSeek) this.onSeek(Number(tr.dataset.t));
     });
@@ -40,7 +47,7 @@ export class EventLog {
     this.empty.hidden = false;
   }
 
-  // entry: { clock, t, kind: 'CLIPPING' | 'LIMITED' | 'CLEAN' | 'hum' | 'stereo' | 'alert' | 'info', title, ceilingDb, detail, seekable }
+  // entry: { clock, t, kind: 'CLIPPING' | 'LIMITED' | 'CLEAN' | 'hum' | 'stereo' | 'alert' | 'info', title, ceilingDb, detail, seekable, wave }
   // Kept in time order: a stereo change arrives about 10 s after the time it carries.
   add(entry) {
     const i = insertByTime(this.entries, entry);
@@ -53,7 +60,7 @@ export class EventLog {
       tr.dataset.t = String(entry.t);
       tr.title = this.seekTitle;
     }
-    tr.innerHTML = `<td>${escapeHtml(entry.clock || '')}</td><td>${fmtDuration(entry.t)}</td><td><span class="ev ev-${entry.kind}">${escapeHtml(entry.title)}</span></td><td>${Number.isFinite(entry.ceilingDb) ? `${fmtDb(entry.ceilingDb)} dBFS` : ''}</td><td>${escapeHtml(entry.detail || '')}</td>`;
+    tr.innerHTML = `<td>${escapeHtml(entry.clock || '')}</td><td>${fmtDuration(entry.t)}</td><td><span class="ev ev-${entry.kind}">${escapeHtml(entry.title)}</span>${entry.wave && this.onWave ? `<button type="button" class="wave-link" data-wave="${escapeHtml(entry.wave)}" title="Show this moment's waveform">Waveform</button>` : ''}</td><td>${Number.isFinite(entry.ceilingDb) ? `${fmtDb(entry.ceilingDb)} dBFS` : ''}</td><td>${escapeHtml(entry.detail || '')}</td>`;
     this.body.insertBefore(tr, this.body.rows[above] || null);
     while (this.body.rows.length > MAX_ROWS) this.body.lastElementChild.remove();
     this.empty.hidden = true;

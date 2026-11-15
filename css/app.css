@@ -215,6 +215,16 @@ main { padding: 12px 16px 24px; display: flex; flex-direction: column; gap: 12px
 .balance .bar { position: absolute; top: 1px; height: 10px; background: var(--series-1); border-radius: 2px; }
 .balance .ref .bar { background: var(--muted); }
 
+/* Waveform */
+.wave-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.wave-actions select { max-width: 22em; }
+.wave-actions .seg button:disabled { opacity: 0.4; cursor: default; }
+#waveform { cursor: grab; }
+.wave-foot { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 6px; color: var(--text-2); }
+.wave-foot .legend { display: inline-flex; flex-wrap: wrap; gap: 4px 14px; }
+.wave-foot .legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.wave-foot .sw { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
+.wave-foot .sw.band { height: 10px; background: rgba(255, 255, 255, 0.12); border-top: 1px dashed var(--muted); border-radius: 0; }
 /* Log and detectors */
 .bottom { display: grid; grid-template-columns: 1fr; gap: 12px; }
 @media (min-width: 900px) { .bottom { grid-template-columns: 3fr 1fr; } }
@@ -227,6 +237,8 @@ table.log { width: 100%; border-collapse: collapse; font-size: 0.85rem; font-var
 .log th { text-align: left; color: var(--muted); font-weight: 500; position: sticky; top: 0; background: var(--surface); padding: 4px 8px; border-bottom: 1px solid var(--axis); }
 .log td { padding: 5px 8px; border-bottom: 1px solid var(--grid); vertical-align: top; }
 .log tr.seekable { cursor: pointer; }
+.log .wave-link { margin-left: 8px; padding: 0 8px; font: inherit; font-size: 0.8rem; color: var(--text-2); background: var(--surface-2); border: 1px solid var(--axis); border-radius: 10px; cursor: pointer; }
+.log .wave-link:hover { color: var(--text); border-color: var(--muted); }
 .log tr.seekable:hover td { background: var(--surface-2); }
 .ev { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
 .ev::before { content: ''; width: 9px; height: 9px; border-radius: 2px; background: var(--muted); }

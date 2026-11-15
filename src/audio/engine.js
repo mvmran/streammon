@@ -7,8 +7,8 @@ const WORKLET_URL = new URL('./analyzer-worklet.js', import.meta.url);
 const FILE_WORKER_URL = new URL('./file-worker.js', import.meta.url);
 
 export class AudioEngine {
-  constructor({ onFrame, onSecond, onEvent, onEnded, onHum } = {}) {
-    this.handlers = { onFrame, onSecond, onEvent, onEnded, onHum };
+  constructor({ onFrame, onSecond, onEvent, onEnded, onHum, onWave } = {}) {
+    this.handlers = { onFrame, onSecond, onEvent, onEnded, onHum, onWave };
     this.humOptions = {}; // mains hum detector settings, applied at start and on change
     this.ctx = null;
     this.stream = null;
@@ -38,7 +38,8 @@ export class AudioEngine {
       channelCount: 2,
       channelCountMode: 'explicit',
       channelInterpretation: 'speakers', // a mono source is copied to both channels
-      processorOptions: { humOptions: this.humOptions },
+      // Waveform captures only when the page shows them (not the extension, yet).
+      processorOptions: { humOptions: this.humOptions, captures: !!this.handlers.onWave },
     });
     this.node.port.onmessage = (e) => this.onMessage(e.data);
     // The worklet must reach the destination to be pulled; keep it silent.
@@ -68,10 +69,10 @@ export class AudioEngine {
       if (this.resets > 0 && --this.resets === 0) this.endReset();
       return;
     }
-    if (msg.type === 'summary') {
+    if (msg.type === 'summary' || (msg.type === 'wave' && msg.id)) {
       const resolve = this.requests.get(msg.id);
       this.requests.delete(msg.id);
-      if (resolve) resolve(msg.summary);
+      if (resolve) resolve(msg.type === 'wave' ? msg.snap : msg.summary);
       return;
     }
     if (this.resets) return; // measured before a reset, still in flight
@@ -79,6 +80,7 @@ export class AudioEngine {
     else if (msg.type === 'second' && h.onSecond) h.onSecond(msg.row);
     else if (msg.type === 'event' && h.onEvent) h.onEvent(msg.event);
     else if (msg.type === 'hum' && h.onHum) h.onHum(msg.hum);
+    else if (msg.type === 'wave' && h.onWave) h.onWave(msg.snap); // a clip event's capture
   }
 
   // `monitor`: also play the stream to the speakers (needed for extension tab capture,
@@ -186,6 +188,11 @@ export class AudioEngine {
   // Asks the worklet to close any open episode and report its session summary.
   finish() {
     return this.request('finish');
+  }
+
+  // The last 10 s of samples as a waveform snapshot (waveform.js), or null.
+  freeze() {
+    return this.request('freeze');
   }
 
   // The session summary so far, without ending anything.

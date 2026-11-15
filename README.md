@@ -185,6 +185,13 @@ The text under the status says how it was detected:
   for readings. The darker bars are the octave-balance frequencies.
 - **Peak per second**: a flat line of peaks at one level is the visual signature of
   clipping or limiting.
+- **Waveform** (web app): the audio sample by sample, as in an audio editor, with the
+  clip ceiling, the ±1 dB band around it and the plateaus the detector counts marked in
+  orange. Half a second around the flattest moment is kept each time clipping or limiting
+  starts (the last 50; the log entry's **Waveform** button opens it), and **Freeze**
+  keeps the last 10 seconds (the last 5). Ctrl + wheel or double-click zooms, drag pans,
+  the Plateau buttons step between plateaus. For a file, a timeline click shows that
+  moment.
 
 ## Mains hum
 
@@ -236,7 +243,8 @@ Alerts appear as a banner and in the event log. Sound is **off by default** beca
 runs during services. Settings are remembered by the browser.
 
 - **Export CSV**: one row per second with every metric, clip status and the detector readings.
-- **Export JSON summary**: session totals, the event log and the alert settings.
+- **Export JSON summary**: session totals, the event log, the alert settings and the
+  waveform captures (16-bit samples, base64; log entries link to them by `wave`).
 - **Record CSV to disk…**: writes each row to a file as it happens (Chrome/Edge), so
   nothing is lost if the laptop crashes during a long service.
 

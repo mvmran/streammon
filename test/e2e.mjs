@@ -73,10 +73,18 @@ async function main() {
     check(/Status\s*LIMITED/.test(summary), `summary status LIMITED (${summary.match(/Status\s*\w+/)})`);
     check(/Integrated\s*−14\.\d LUFS/.test(summary), `integrated about −14.1 (${summary.match(/Integrated\s*\S+/)})`);
     check((await page.locator('#log-body tr').count()) >= 1, 'event log has entries');
+    await page.locator('#log-body .wave-link').first().click();
+    await page.waitForTimeout(300);
+    const fileWave = await page.textContent('#wave-title');
+    check(/Limiting started · 500 ms · [1-9]\d* plateau/.test(fileWave), `a log entry's Waveform button shows its capture (${fileWave})`);
+    await page.click('#wave-next');
+    check(/Showing \d+(\.\d+)? ms/.test(await page.textContent('#wave-view')), `Plateau ▶ steps to a plateau (${await page.textContent('#wave-view')})`);
+    await page.locator('section.wave').screenshot({ path: join(OUT, 'waveform-file.png') });
     await page.click('#timeline', { position: { x: 400, y: 100 } });
     await page.waitForTimeout(4000);
     const st = await page.textContent('#status');
     check(['LIMITED', 'CLEAN'].includes(st), `playback status not clipping (${st})`);
+    check(/^Around \d+:\d\d · 2\.0 s/.test(await page.textContent('#wave-title')), `a timeline click shows that moment's waveform (${await page.textContent('#wave-title')})`);
     await page.screenshot({ path: join(OUT, 'file-mode.png'), fullPage: true });
     // Rapid seeks: each clears the spectrum while a redraw may be pending (caught by the
     // "no page errors" check at the end).
@@ -166,6 +174,23 @@ async function main() {
     check((await page.textContent('#mono')) === 'MONO', 'MONO badge');
     const logText = await page.textContent('#log-body');
     check(/Clipping started/.test(logText), 'clipping event logged');
+    const liveWave = await page.textContent('#wave-title');
+    const plateaus = Number((liveWave.match(/(\d+) plateau/) || [])[1]);
+    check(/Clipping started · 500 ms/.test(liveWave) && plateaus >= 4, `clipping start captured and shown (${liveWave})`);
+    await page.locator('section.wave').screenshot({ path: join(OUT, 'waveform-live.png') });
+    await page.click('#wave-freeze');
+    await page.waitForFunction(() => /Frozen \(\d+ s\)/.test(document.getElementById('wave-title').textContent), null, { timeout: 3000 });
+    check(/Waveform frozen/.test(await page.textContent('#log-body')), 'Freeze shows the last 10 s and logs it');
+    await page.locator('section.wave').screenshot({ path: join(OUT, 'waveform-freeze.png') });
+    {
+      const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#export-json')]);
+      const jsonPath = join(OUT, 'session.json');
+      await dl.saveAs(jsonPath);
+      const j = JSON.parse(await readFile(jsonPath, 'utf8'));
+      const keys = new Set(j.waveforms.map((w) => w.key));
+      const linked = j.events.filter((e) => e.wave);
+      check(j.waveforms.length >= 2 && linked.length >= 2 && linked.every((e) => keys.has(e.wave)), `JSON export carries the captures, linked from the log (${j.waveforms.length} captures)`);
+    }
     check(/Alert: Clipping/.test(logText), 'clipping alert raised');
     check(await page.isVisible('.alert'), 'alert banner shown');
     // Banners update every second: the × must stay the same element (a replaced one under
