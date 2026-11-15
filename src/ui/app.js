@@ -9,7 +9,7 @@ import { readSessionCsv, sessionEvents, sessionSummary, rowAt, stepRows } from '
 import { SpectrumSecond } from '../dsp/bands.js';
 import { PanGrid } from '../dsp/pan.js';
 import { decodePan } from './pan-codec.js';
-import { WAVE, eventCapture, wholeCapture, bufferSnapshot, findRuns, flattestMoment, captureJson } from '../dsp/waveform.js';
+import { WAVE, eventCapture, rangeCapture, bufferSnapshot, captureJson } from '../dsp/waveform.js';
 import { WaveformView, fmtTime } from './waveform-view.js';
 import { TimeChart } from './charts.js';
 import { SpectrumView } from './spectrum.js';
@@ -36,7 +36,7 @@ const el = {
   humListen: $('hum-listen'), humGain: $('hum-gain'), humListenHum: $('hum-listen-hum'), humListenCtl: $('hum-listen-ctl'),
   humListenNote: $('hum-listen-note'),
   wavePick: $('wave-pick'), waveFreeze: $('wave-freeze'), wavePrev: $('wave-prev'), waveNext: $('wave-next'),
-  waveIn: $('wave-in'), waveOut: $('wave-out'), waveFit: $('wave-fit'), waveTitle: $('wave-title'), waveView: $('wave-view'),
+  waveIn: $('wave-in'), waveOut: $('wave-out'), waveFit: $('wave-fit'), waveTitle: $('wave-title'), waveView: $('wave-view'), waveClear: $('wave-clear'),
 };
 
 const state = {
@@ -615,7 +615,7 @@ function showFileResult(analysisSecs, moment = null) {
   const clockAt = (t) => (f.csv && f.startWall !== null ? fmtClock(new Date(f.startWall + t * 1000)) : 'file');
   const entries = f.events.map((e) => {
     const entry = EventLog.fromEvent(e, clockAt(e.t), true);
-    if (!f.csv && e.type === 'start') entry.wave = fileWaveKey(e); // worked out from the audio when opened
+    if (!f.csv && isClipStart(e)) entry.wave = fileWaveKey(e); // worked out from the audio when opened
     return entry;
   });
   log.seekTitle = f.csv ? 'Show this moment' : 'Play from here';
@@ -705,16 +705,26 @@ function togglePlay() {
 // ---------------------------------------------------------------------------
 // Waveform captures
 
+const WAVE_IDLE_TEXT = 'Waiting for clipping: each time it starts, the moment is captured here. Freeze keeps the last 10 seconds.';
+
 function clearWaves() {
   state.waves.clear();
   state.wavesDropped = { event: 0, freeze: 0 };
   const f = state.mode === 'file' && state.file;
   waveView.clear(
-    state.mode !== 'file' ? 'Clipping and limiting are captured here as they start. Freeze keeps the last 10 seconds.'
+    state.mode !== 'file' ? WAVE_IDLE_TEXT
       : !f ? 'Open an audio file to see its waveform.'
       : f.csv ? 'A saved CSV holds no audio: open the recording itself to see its waveform.'
-      : 'Click the timeline, press Freeze, or click Waveform on a clipping or limiting entry in the log.',
+      : 'Click the timeline, press Freeze, or click Waveform on a "Clipping started" entry in the log.',
   );
+  renderWavePick();
+}
+
+// The Clear button: empties the display only. Every capture stays in the menu, the log and
+// the JSON export, and the next clipping capture shows as soon as it arrives.
+function clearWaveDisplay() {
+  waveView.touched = 0;
+  waveView.clear(state.mode === 'file' ? 'Cleared. Pick a capture from the menu, click the timeline or press Freeze.' : 'Cleared. Waiting for the next clipping…');
   renderWavePick();
 }
 
@@ -733,11 +743,13 @@ function showWave(c) {
   renderWavePick();
 }
 
-// The capture menu, newest first; a file moment (not kept) shows as its own first item.
+// The capture menu, newest first; a file moment (not kept) shows as its own first item, and
+// a cleared display as "Cleared".
 function renderWavePick() {
   const shown = waveView.cap;
   const opts = [...state.waves.values()].reverse().map((c) => new Option(c.label, c.key));
   if (shown && !state.waves.has(shown.key)) opts.unshift(new Option(shown.label, ''));
+  else if (!shown && state.waves.size) opts.unshift(new Option('Cleared (pick a capture)', ''));
   if (!opts.length) opts.push(new Option('No captures', ''));
   el.wavePick.replaceChildren(...opts);
   el.wavePick.value = shown && state.waves.has(shown.key) ? shown.key : '';
@@ -748,31 +760,33 @@ function renderWavePick() {
 function updateWaveControls() {
   const c = waveView.cap;
   el.waveFreeze.disabled = !(state.running || (state.mode === 'file' && state.file && !state.file.csv));
-  el.wavePrev.disabled = el.waveNext.disabled = !(c && c.runs.length);
-  el.waveIn.disabled = el.waveOut.disabled = el.waveFit.disabled = !c;
+  el.wavePrev.disabled = el.waveNext.disabled = !(c && c.marks.length);
+  el.waveIn.disabled = el.waveOut.disabled = el.waveFit.disabled = el.waveClear.disabled = !c;
 }
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 function renderWaveInfo() {
   const c = waveView.cap, v = waveView.viewInfo;
   updateWaveControls();
   if (!c) {
-    setText(el.waveTitle, 'no capture yet');
+    setText(el.waveTitle, state.waves.size ? 'display cleared' : 'no capture yet');
     setText(el.waveView, '');
     return;
   }
-  const full = v.allFull ? `, ${v.allFull} full-scale run${v.allFull > 1 ? 's' : ''}` : '';
-  setText(el.waveTitle, `${c.label} · ${fmtSpan((c.n / c.sampleRate) * 1000)} · ${v.allPlateaus} plateau${v.allPlateaus === 1 ? '' : 's'}${full}`);
-  setText(el.waveView, `Showing ${fmtSpan(v.ms)} from ${fmtTime(v.from, 3)} · ${v.plateaus} plateau${v.plateaus === 1 ? '' : 's'} in view`);
+  const full = v.allFull ? ` (${v.allFull} at full scale)` : '';
+  setText(el.waveTitle, `${c.label} · ${fmtSpan((c.n / c.sampleRate) * 1000)} · ${plural(v.allClipped, 'clipped peak')}${full}`);
+  setText(el.waveView, `Showing ${fmtSpan(v.ms)} from ${fmtTime(v.from, 3)} · ${v.clipped} clipped in view`);
 }
 
 const fmtSpan = (ms) => (ms >= 1000 ? `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)} s` : ms >= 10 ? `${ms.toFixed(0)} ms` : `${ms.toFixed(2)} ms`);
 
-// A clip episode's capture from the worklet (live): shown unless the one on screen is a
-// freeze or was zoomed or panned in the last WAVE_AUTO_IDLE_MS.
+// Clipping starting (live): its capture from the worklet, shown unless the one on screen is
+// a freeze or was zoomed or panned in the last WAVE_AUTO_IDLE_MS.
 function onWaveSnap(snap) {
   if (!state.running || state.mode === 'file' || !snap) return;
   const clock = fmtClock(new Date(state.startWall + snap.eventT * 1000));
-  const c = eventCapture(snap, { key: `w${snap.id}`, label: `${clock} ${snap.status === 'CLIPPING' ? 'Clipping' : 'Limiting'} started`, status: snap.status });
+  const c = eventCapture(snap, { key: `w${snap.id}`, label: `${clock} Clipping started`, status: snap.status });
   addWave(c);
   const cur = waveView.cap;
   if (!cur || (cur.kind !== 'freeze' && performance.now() - waveView.touched > WAVE_AUTO_IDLE_MS)) showWave(c);
@@ -782,11 +796,11 @@ function onWaveSnap(snap) {
 function openWave(key) {
   let c = state.waves.get(key);
   if (!c && key.startsWith('f') && state.mode === 'file' && state.file && !state.file.csv) {
-    const e = state.file.events.find((x) => x.type === 'start' && fileWaveKey(x) === key);
+    const e = state.file.events.find((x) => isClipStart(x) && fileWaveKey(x) === key);
     if (e) addWave((c = fileEventCapture(e)));
   }
   if (c) showWave(c);
-  else waveView.clear(`That capture is no longer kept (only the last ${WAVE_KEEP.event} clipping/limiting starts and ${WAVE_KEEP.freeze} freezes are).`);
+  else waveView.clear(`That capture is no longer kept (only the last ${WAVE_KEEP.event} clipping starts and ${WAVE_KEEP.freeze} freezes are).`);
   renderWavePick();
   $('waveform').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
@@ -798,28 +812,31 @@ async function freezeWave() {
   if (!snap || !state.running || !snap.left.length) return;
   const clock = fmtClock(new Date(state.startWall + snap.t * 1000));
   const secs = snap.left.length / snap.sampleRate;
-  const c = wholeCapture(snap, { kind: 'freeze', key: `w${snap.id}`, label: `${clock} Frozen (${secs.toFixed(0)} s)` });
+  const c = rangeCapture(snap, { kind: 'freeze', key: `w${snap.id}`, label: `${clock} Frozen (${secs.toFixed(0)} s)` });
   addWave(c);
   showWave(c);
   log.add({ clock, t: snap.t, kind: 'info', title: 'Waveform frozen', detail: `the ${secs.toFixed(0)} s before this`, wave: c.key });
 }
 
-// File mode: snapshots straight from the decoded audio (seconds).
+const isClipStart = (e) => e.type === 'start' && e.status === 'CLIPPING';
+
+// File mode: snapshots straight from the decoded audio (seconds), with the analysis rows'
+// statuses.
 function fileSnap(from, to) {
-  const b = state.file.buffer;
+  const f = state.file;
+  const b = f.buffer;
   const L = b.getChannelData(0);
   const R = b.numberOfChannels > 1 ? b.getChannelData(1) : L;
-  return bufferSnapshot(L, R, b.sampleRate, from * b.sampleRate, to * b.sampleRate);
+  f.statuses ||= f.rows.map((r) => r.status);
+  return bufferSnapshot(L, R, b.sampleRate, from * b.sampleRate, to * b.sampleRate, f.statuses);
 }
 
 const fileWaveKey = (e) => `f${e.t}`;
 
-// The capture the live monitor would have taken at this clip event: its second ends at
-// e.t + 1, and the search covers the WAVE.searchSec before that.
+// The capture the live monitor would have taken when clipping started (WAVE.beforeSec before
+// the second that turned the status to WAVE.afterSec after it; less at the end of the file).
 function fileEventCapture(e) {
-  const end = e.t + 1;
-  const label = `${fmtDuration(e.t)} ${e.status === 'CLIPPING' ? 'Clipping' : 'Limiting'} started`;
-  return eventCapture(fileSnap(end - WAVE.searchSec, end), { key: fileWaveKey(e), label, status: e.status });
+  return eventCapture(fileSnap(Math.max(0, e.t - WAVE.beforeSec), e.t + 1 + WAVE.afterSec), { key: fileWaveKey(e), label: `${fmtDuration(e.t)} Clipping started`, status: e.status });
 }
 
 function freezeFile() {
@@ -829,28 +846,31 @@ function freezeFile() {
   const snap = fileSnap(pos - WAVE.ringSec, pos);
   if (!snap.left.length) return;
   const secs = snap.left.length / snap.sampleRate;
-  const c = wholeCapture(snap, { kind: 'freeze', key: `ffreeze${++state.freezes}`, label: `${fmtDuration(pos)} Frozen (${secs.toFixed(0)} s)` });
+  const c = rangeCapture(snap, { kind: 'freeze', key: `ffreeze${++state.freezes}`, label: `${fmtDuration(pos)} Frozen (${secs.toFixed(0)} s)` });
   addWave(c);
   showWave(c);
   log.add({ clock: 'file', t: pos, kind: 'info', title: 'Waveform frozen', detail: `the ${secs.toFixed(0)} s before this`, seekable: true, wave: c.key });
 }
 
-// A timeline click on an audio file: the 2 s around that point, at its flattest moment if
-// it has plateaus (else whole).
+// A timeline click on an audio file: the 2 s around that point (judged with a second either
+// side, so flat tops near the edges keep their neighbours), at its busiest clipping if any.
 function showFileMoment(t) {
-  const snap = fileSnap(t - 1, t + 1);
+  const snap = fileSnap(t - 2, t + 2);
   if (!snap.left.length) return;
-  const focus = flattestMoment(findRuns(snap), snap.left.length, snap.sampleRate);
-  showWave(wholeCapture(snap, { kind: 'moment', key: 'moment', label: `Around ${fmtDuration(t)}`, focus }));
+  const sr = snap.sampleRate;
+  const from = Math.max(0, Math.round((t - 1) * sr) - snap.start);
+  const to = Math.min(snap.left.length, Math.round((t + 1) * sr) - snap.start);
+  if (to <= from) return;
+  showWave(rangeCapture(snap, { kind: 'moment', key: 'moment', label: `Around ${fmtDuration(t)}`, focus: true }, from, to));
 }
 
-// What the JSON export carries: live, the captures kept; a file, its first clipping/limiting
-// starts (worked out now) and its freezes.
+// What the JSON export carries: live, the captures kept; a file, its first clipping starts
+// (worked out now) and its freezes.
 function exportWaves() {
   const f = state.mode === 'file' && state.file;
   if (!f) return [...state.waves.values()];
   if (f.csv) return [];
-  const starts = f.events.filter((e) => e.type === 'start').slice(0, WAVE_KEEP.event);
+  const starts = f.events.filter(isClipStart).slice(0, WAVE_KEEP.event);
   const events = starts.map((e) => state.waves.get(fileWaveKey(e)) || fileEventCapture(e));
   return [...events, ...[...state.waves.values()].filter((c) => c.kind === 'freeze')];
 }
@@ -874,7 +894,7 @@ async function exportJson() {
   const waves = exportWaves();
   const tail = {
     waveforms: waves.map(captureJson),
-    waveformsNote: `Up to ${WAVE_KEEP.event} captures of clipping/limiting starts (${state.mode === 'file' ? 'the first' : 'the last'} ones) and ${WAVE_KEEP.freeze} freezes; log entries link to them by "wave" = key.`
+    waveformsNote: `Up to ${WAVE_KEEP.event} captures of clipping starts (${state.mode === 'file' ? 'the first' : 'the last'} ones) and ${WAVE_KEEP.freeze} freezes; log entries link to them by "wave" = key.`
       + (state.wavesDropped.event + state.wavesDropped.freeze ? ` ${state.wavesDropped.event + state.wavesDropped.freeze} older captures were dropped.` : ''),
   };
   download(exportName('json'), summaryJson(summary, log.entries, meta, tail), 'application/json');
@@ -970,6 +990,7 @@ el.exportCsv.addEventListener('click', async () => {
 });
 el.exportJson.addEventListener('click', exportJson);
 el.waveFreeze.addEventListener('click', freezeWave);
+el.waveClear.addEventListener('click', clearWaveDisplay);
 el.wavePick.addEventListener('change', () => {
   const c = state.waves.get(el.wavePick.value);
   if (c) showWave(c);

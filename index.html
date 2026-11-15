@@ -204,9 +204,10 @@
             <div class="wave-actions">
               <select id="wave-pick" aria-label="Capture to show" disabled><option value="">No captures</option></select>
               <button id="wave-freeze" class="btn" type="button" disabled title="Capture the last 10 seconds">Freeze last 10 s</button>
-              <div class="seg" role="group" aria-label="Plateaus">
-                <button id="wave-prev" type="button" title="Previous plateau">◀ Plateau</button>
-                <button id="wave-next" type="button" title="Next plateau">Plateau ▶</button>
+              <button id="wave-clear" class="btn ghost" type="button" disabled title="Empty the display so the next clipping capture stands out (nothing is deleted)">Clear</button>
+              <div class="seg" role="group" aria-label="Clipped peaks">
+                <button id="wave-prev" type="button" title="Previous clipped peak">◀ Clipped</button>
+                <button id="wave-next" type="button" title="Next clipped peak">Clipped ▶</button>
               </div>
               <div class="seg" role="group" aria-label="Zoom">
                 <button id="wave-out" type="button" title="Zoom out">−</button>
@@ -215,10 +216,10 @@
               </div>
             </div>
           </div>
-          <div class="chart-wrap"><canvas id="waveform" height="300" aria-label="Waveform of a captured moment, with the clip detector's ceiling and plateaus"></canvas></div>
+          <div class="chart-wrap"><canvas id="waveform" height="300" aria-label="Waveform of a captured moment, with clipped peaks marked"></canvas></div>
           <div class="wave-foot small">
             <span id="wave-view" class="tabular"></span>
-            <span class="legend"><span><i class="sw" style="background:var(--series-1)"></i>waveform</span><span><i class="sw" style="background:var(--series-2)"></i>plateau the detector counts (within 1 dB of the ceiling)</span><span><i class="sw band"></i>±1 dB around the ceiling (dashed)</span></span>
+            <span class="legend"><span><i class="sw" style="background:var(--series-1)"></i>waveform</span><span><i class="sw" style="background:var(--critical)"></i>clipped peak (flat top while CLIPPING, or at 0 dBFS)</span><span><i class="sw dash"></i>clip ceiling</span></span>
             <span class="muted">Ctrl + wheel or double-click to zoom · drag to pan</span>
           </div>
         </div>

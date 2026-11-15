@@ -1,6 +1,6 @@
-// Waveform panel: one capture (src/dsp/waveform.js) drawn sample by sample, with what the
-// clip detector saw: the ceiling of each 100 ms frame per polarity, the ±1 dB band around
-// it, and the plateaus it counts (runs that stay in that band), plus full-scale runs.
+// Waveform panel: one capture (src/dsp/waveform.js) drawn sample by sample, with the clipped
+// peaks in red (flat tops while the status is CLIPPING, and full-scale runs) and the clip
+// ceiling of each 100 ms frame per polarity as a faint dashed line.
 // Zoom with the buttons, Ctrl + wheel or a double-click; drag (or Shift + wheel) to pan.
 
 import { css, fmtDb, fmtDuration } from './format.js';
@@ -106,14 +106,14 @@ export class WaveformView {
     if (this.onView) this.onView();
   }
 
-  // The previous / next plateau (dir −1 / 1) from the view's centre, centred, zoomed in to
-  // about 25 ms if the view is wider than 100 ms. False when there is none that way.
+  // The previous / next clipped peak (dir −1 / 1) from the view's centre, centred, zoomed in
+  // to about 25 ms if the view is wider than 100 ms. False when there is none that way.
   jump(dir) {
     const c = this.cap;
-    if (!c || !c.runs.length) return false;
+    if (!c || !c.marks.length) return false;
     const mid = (this.a + this.b) / 2;
     const eps = 0.5;
-    const runs = dir > 0 ? c.runs.filter((r) => (r.s + r.e) / 2 > mid + eps) : c.runs.filter((r) => (r.s + r.e) / 2 < mid - eps).reverse();
+    const runs = dir > 0 ? c.marks.filter((r) => (r.s + r.e) / 2 > mid + eps) : c.marks.filter((r) => (r.s + r.e) / 2 < mid - eps).reverse();
     if (!runs.length) return false;
     const r = runs[0];
     const width = this.width > 0.1 * c.sampleRate ? 0.025 * c.sampleRate : this.width;
@@ -126,14 +126,12 @@ export class WaveformView {
   get viewInfo() {
     const c = this.cap;
     if (!c) return null;
-    const runs = c.runs.filter((r) => r.e > this.a && r.s < this.b);
     return {
       ms: (this.width / c.sampleRate) * 1000,
       from: c.t0 + this.a / c.sampleRate,
-      plateaus: runs.filter((r) => r.kind === 'dwell').length,
-      full: runs.filter((r) => r.kind === 'full').length,
-      allPlateaus: c.runs.filter((r) => r.kind === 'dwell').length,
-      allFull: c.runs.filter((r) => r.kind === 'full').length,
+      clipped: c.marks.filter((r) => r.e > this.a && r.s < this.b).length,
+      allClipped: c.marks.length,
+      allFull: c.marks.filter((r) => r.kind === 'full').length,
     };
   }
 
@@ -230,10 +228,11 @@ export class WaveformView {
       ctx.rect(p.l, top, p.r - p.l, laneH);
       ctx.clip();
       this.drawTrace(ctx, p, x, k, y, 0, c.n, css('--series-1'), 1.25);
-      for (const r of c.runs) {
-        if (r.ch !== (c.right ? ch : 0) || r.e <= this.a || r.s >= this.b) continue;
-        this.drawTrace(ctx, p, x, k, y, r.s, r.e, css('--series-2'), 2.5);
-        if (r.kind === 'full') this.markFull(ctx, p, r, top);
+      for (const r of c.marks) {
+        if (r.ch !== ch || r.e <= this.a || r.s >= this.b) continue;
+        // Drawn a little past the top so a short flat top still shows at a wide view.
+        this.drawTrace(ctx, p, x, k, y, Math.max(0, r.s - 1), Math.min(c.n, r.e + 1), css('--critical'), 3);
+        this.markClip(ctx, p, r, top);
       }
       ctx.restore();
     });
@@ -302,7 +301,7 @@ export class WaveformView {
     }
   }
 
-  // The ±dwellDb band around each frame's ceiling (shaded) and the ceiling (dashed).
+  // Each frame's clip ceiling per polarity, faint and dashed, for reference.
   drawCeilings(ctx, p, y) {
     const c = this.cap;
     const o = DEFAULT_CLIP_OPTIONS;
@@ -315,10 +314,6 @@ export class WaveformView {
       for (const [pol, sign] of [[0, 1], [1, -1]]) {
         const db = c.ceilings[f * 2 + pol];
         if (!(db > o.minCeilingDb)) continue;
-        const lo = lin(db - o.dwellDb), hi = lin(db + o.dwellDb);
-        const ya = y(sign * lo), yb = y(sign * Math.min(hi, this.yMax * 1.2));
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.07)';
-        ctx.fillRect(x0, Math.min(ya, yb), x1 - x0, Math.abs(yb - ya));
         const yc = Math.round(y(sign * lin(db))) + 0.5;
         ctx.strokeStyle = css('--muted');
         ctx.setLineDash([4, 3]);
@@ -387,10 +382,11 @@ export class WaveformView {
     }
   }
 
-  markFull(ctx, p, r, top) {
+  // A tick along the top of the lane for each clipped peak, so they show at any zoom.
+  markClip(ctx, p, r, top) {
     const x0 = Math.max(p.l, this.xOf(r.s)), x1 = Math.min(p.r, this.xOf(r.e));
-    ctx.fillStyle = css('--series-2');
-    ctx.fillRect(x0, top + 1, Math.max(2, x1 - x0), 4);
+    ctx.fillStyle = css('--critical');
+    ctx.fillRect(x0, top + 1, Math.max(2, x1 - x0), r.kind === 'full' ? 6 : 3);
   }
 
   drawTimeAxis(ctx, p) {
@@ -434,7 +430,7 @@ export class WaveformView {
     const v = chans[ch][i] * k;
     const pol = v < 0 ? 1 : 0;
     const ceil = ceilingAt(c, i, pol);
-    const run = c.runs.find((r) => r.ch === ch && r.s <= i && i < r.e);
+    const run = c.marks.find((r) => r.ch === ch && r.s <= i && i < r.e);
     const row = (key, val) => `<div class="row"><span class="k">${key}</span><span class="val">${val}</span></div>`;
     const level = v === 0 ? '−∞' : fmtDb(20 * Math.log10(Math.abs(v)), 2);
     tip.className = 'tooltip';
@@ -443,7 +439,7 @@ export class WaveformView {
       row(chans.length > 1 ? (ch ? 'Right' : 'Left') : 'Left = right', `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(4)}`),
       row('Level', `${level} dBFS`),
       row(`Ceiling (${pol ? '−' : '+'})`, Number.isFinite(ceil) ? `${fmtDb(ceil)} dBFS` : '--'),
-      run ? `<div class="k">${run.kind === 'full' ? 'Full-scale run' : 'Plateau'}: ${run.e - run.s} samples (${(((run.e - run.s) / c.sampleRate) * 1000).toFixed(2)} ms)</div>` : '',
+      run ? `<div class="k">Clipped, ${run.kind === 'full' ? 'at full scale' : 'flat top'}: ${run.e - run.s} samples (${(((run.e - run.s) / c.sampleRate) * 1000).toFixed(2)} ms)</div>` : '',
     ].join('');
     tip.hidden = false;
     const tw = tip.offsetWidth;

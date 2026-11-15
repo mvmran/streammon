@@ -12,10 +12,11 @@
 //                    (onset/offset per HUM_LOG, not every PRESENT change: see HumLog in episodes.js)
 //                    stereo status changes: { type: 'stereo', t, status, detail, previous, previousSeconds }
 //                    (file analysis: MONO, UNBALANCED mono, CHANNEL DEAD or STEREO, i.e. none of these)
-//   onCapture(snap)  when set, the last WAVE.ringSec of samples are kept (waveform.js): at each
-//                    clip 'start' event (which then carries `wave`, an id) the last
-//                    WAVE.searchSec go out as a snapshot { kind: 'event', id, eventT, status, … };
-//                    freeze() returns the whole ring the same way
+//   onCapture(snap)  when set, the last WAVE.ringSec of samples are kept (waveform.js), with
+//                    each frame's ceiling and each second's status: at each CLIPPING 'start'
+//                    event (which then carries `wave`, an id) a snapshot follows WAVE.afterSec
+//                    later, from WAVE.beforeSec before the event: { kind: 'event', id, eventT,
+//                    status, … }; freeze() returns the whole ring the same way
 
 import { LoudnessMeter } from './loudness.js';
 import { TruePeakChannel } from './truepeak.js';
@@ -100,6 +101,7 @@ export class StreamAnalyzer {
     this.events = 0;
     if (this.wave) this.wave.reset();
     this.captures = 0; // waveform capture ids handed out
+    this.pendingCapture = null; // a clipping start's capture, taken WAVE.afterSec later
   }
 
   get elapsed() {
@@ -199,10 +201,16 @@ export class StreamAnalyzer {
     }
     const t = this.elapsed;
     this.lastClip = c;
+    if (this.wave) this.wave.endSecond(c.status); // before the log: a capture needs it
     this.statusSeconds[c.status]++;
     this.dwellSum += c.dwell;
     this.fullScaleSamples += c.fullScaleSamples;
     this.clipLog.update(c, t);
+    const p = this.pendingCapture;
+    if (p && t >= p.due - 1e-9) {
+      this.pendingCapture = null;
+      this.onCapture({ ...this.wave.snapshot(t - p.from), ...p.info });
+    }
     this.humLog.update(h, t, this.hum.opt);
 
     const stereo = this.stereo.current;
@@ -267,13 +275,19 @@ export class StreamAnalyzer {
     this.emit(e);
   }
 
-  // A clip episode starting: with captures on, the event carries the id of the snapshot sent
-  // right after it (the samples that led to the new status).
+  // Clipping starting: with captures on, the event carries the id of the snapshot sent
+  // WAVE.afterSec later (the clipping that turned the status, and what followed).
   clipEvent(e) {
-    if (!this.wave || e.type !== 'start') return this.emit(e);
+    if (!this.wave || e.type !== 'start' || e.status !== CLIPPING) return this.emit(e);
     const id = ++this.captures;
     this.emit({ ...e, wave: id });
-    this.onCapture({ ...this.wave.snapshot(WAVE.searchSec), kind: 'event', id, eventT: e.t, status: e.status, ceilingDb: e.ceilingDb });
+    // e.t is the start of the second that turned the status: snapshot from beforeSec before it
+    // to afterSec after that second ends.
+    this.pendingCapture = {
+      from: Math.max(0, e.t - WAVE.beforeSec),
+      due: e.t + 1 + WAVE.afterSec,
+      info: { kind: 'event', id, eventT: e.t, status: e.status, ceilingDb: e.ceilingDb },
+    };
   }
 
   // The last WAVE.ringSec of samples as a snapshot (null without captures on).

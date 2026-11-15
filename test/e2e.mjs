@@ -73,18 +73,13 @@ async function main() {
     check(/Status\s*LIMITED/.test(summary), `summary status LIMITED (${summary.match(/Status\s*\w+/)})`);
     check(/Integrated\s*−14\.\d LUFS/.test(summary), `integrated about −14.1 (${summary.match(/Integrated\s*\S+/)})`);
     check((await page.locator('#log-body tr').count()) >= 1, 'event log has entries');
-    await page.locator('#log-body .wave-link').first().click();
-    await page.waitForTimeout(300);
-    const fileWave = await page.textContent('#wave-title');
-    check(/Limiting started · 500 ms · [1-9]\d* plateau/.test(fileWave), `a log entry's Waveform button shows its capture (${fileWave})`);
-    await page.click('#wave-next');
-    check(/Showing \d+(\.\d+)? ms/.test(await page.textContent('#wave-view')), `Plateau ▶ steps to a plateau (${await page.textContent('#wave-view')})`);
-    await page.locator('section.wave').screenshot({ path: join(OUT, 'waveform-file.png') });
+    check((await page.locator('#log-body .wave-link').count()) === 0, 'limiting gets no waveform capture (only clipping does)');
     await page.click('#timeline', { position: { x: 400, y: 100 } });
     await page.waitForTimeout(4000);
     const st = await page.textContent('#status');
     check(['LIMITED', 'CLEAN'].includes(st), `playback status not clipping (${st})`);
-    check(/^Around \d+:\d\d · 2\.0 s/.test(await page.textContent('#wave-title')), `a timeline click shows that moment's waveform (${await page.textContent('#wave-title')})`);
+    check(/^Around \d+:\d\d · 2\.0 s · 0 clipped peaks$/.test(await page.textContent('#wave-title')), `a timeline click shows that moment's waveform, nothing marked on limited audio (${await page.textContent('#wave-title')})`);
+    await page.locator('section.wave').screenshot({ path: join(OUT, 'waveform-file.png') });
     await page.screenshot({ path: join(OUT, 'file-mode.png'), fullPage: true });
     // Rapid seeks: each clears the spectrum while a redraw may be pending (caught by the
     // "no page errors" check at the end).
@@ -174,14 +169,25 @@ async function main() {
     check((await page.textContent('#mono')) === 'MONO', 'MONO badge');
     const logText = await page.textContent('#log-body');
     check(/Clipping started/.test(logText), 'clipping event logged');
-    const liveWave = await page.textContent('#wave-title');
-    const plateaus = Number((liveWave.match(/(\d+) plateau/) || [])[1]);
-    check(/Clipping started · 500 ms/.test(liveWave) && plateaus >= 4, `clipping start captured and shown (${liveWave})`);
-    await page.locator('section.wave').screenshot({ path: join(OUT, 'waveform-live.png') });
+    // The capture follows 2 s after the status turns. (This recording's first seconds read
+    // CLIPPING but have no peak that passes the flat-top rule, so it may show none marked.)
+    await page.waitForFunction(() => /Clipping started · 500 ms/.test(document.getElementById('wave-title').textContent), null, { timeout: 5000 });
+    check(true, `clipping start captured and shown (${await page.textContent('#wave-title')})`);
+    await page.waitForTimeout(3000); // into the stretch with clipped peaks
     await page.click('#wave-freeze');
     await page.waitForFunction(() => /Frozen \(\d+ s\)/.test(document.getElementById('wave-title').textContent), null, { timeout: 3000 });
-    check(/Waveform frozen/.test(await page.textContent('#log-body')), 'Freeze shows the last 10 s and logs it');
+    const frozen = await page.textContent('#wave-title');
+    const clippedPeaks = Number((frozen.match(/(\d+) clipped peak/) || [])[1]);
+    check(clippedPeaks >= 5 && /Waveform frozen/.test(await page.textContent('#log-body')), `Freeze shows the last 10 s with clipped peaks marked, and logs it (${frozen})`);
+    await page.click('#wave-next');
+    check(/Showing 25 ms/.test(await page.textContent('#wave-view')), `Clipped ▶ steps to a clipped peak (${await page.textContent('#wave-view')})`);
+    await page.locator('section.wave').screenshot({ path: join(OUT, 'waveform-live.png') });
+    await page.click('#wave-fit');
     await page.locator('section.wave').screenshot({ path: join(OUT, 'waveform-freeze.png') });
+    await page.click('#wave-clear');
+    check((await page.textContent('#wave-title')) === 'display cleared' && (await page.locator('#wave-pick option').count()) >= 3, 'Clear empties the display; the captures stay in the menu');
+    await page.selectOption('#wave-pick', { index: 1 });
+    check(/Frozen/.test(await page.textContent('#wave-title')), 'a cleared capture can be shown again from the menu');
     {
       const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#export-json')]);
       const jsonPath = join(OUT, 'session.json');

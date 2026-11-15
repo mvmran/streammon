@@ -1,44 +1,79 @@
-// Waveform captures: a moment's raw samples together with what the clip detector saw
-// there (its ceiling per 100 ms frame, and the plateaus it counts), for the Waveform panel
-// and the JSON log. Pure JS: it runs in the AudioWorklet (WaveRing, via StreamAnalyzer),
-// on the page and in Node tests.
+// Waveform captures: a moment's raw samples with the peaks that were clipped, for the
+// Waveform panel and the JSON log. Pure JS: it runs in the AudioWorklet (WaveRing, via
+// StreamAnalyzer), on the page and in Node tests.
 //
-// A snapshot is { sampleRate, start, left, right, frameLen, ceilStart, ceilings }:
+// A peak is marked clipped (findClipped) when
+//   - it reaches full scale: fullScaleMinRun samples or more at |x| >= fullScale; or
+//   - it has a flat top that fed a CLIPPING verdict (its second, or one of the next
+//     statusWindowSec - 1 whose dwell average covers it, reads CLIPPING): the top stays within CLIP.topDb
+//     of its own maximum at least CLIP.flatRatio times as long as the wave took to climb the
+//     last 6 dB to it (a rounded peak: about 1), for at least CLIP.minTopMs; it comes within
+//     CLIP.nearCeilingDb of the clip ceiling; and at least CLIP.wallCount other flat tops of
+//     the same polarity sit at the same level (± CLIP.wallDb) within ± CLIP.wallSec.
+// Measured on test-audio/ (2026-11-15, flat tops per second without the status condition):
+// clipped recordings 7-15/s, the limited one 0.3/s, clean ones and speech 0; with it, the
+// limited one 0. One peak's shape can't tell a limiter's occasional flat-ish top from a
+// clip, so the status (which judges many peaks) decides when flat tops count.
+//
+// A snapshot is { sampleRate, start, left, right, frameLen, ceilStart, ceilings, secLen,
+// secStart, statuses }:
 //   start      the first sample's index in session time (samples since the analyzer started)
-//   left/right Float32Array copies (right may be the same array for a mono source)
+//   left/right Float32Array copies (right null or the same samples for a mono source)
 //   ceilings   Float32Array [pos0, neg0, pos1, neg1, …]: the ceiling (dBFS) in force during
-//              each 100 ms frame, from the frame holding sample 0 on
-//   ceilStart  where that first frame starts, relative to sample 0 (≤ 0)
-// A capture (buildCapture) is a cut of a snapshot with the samples as Int16, the plateau
-// runs found in it and the moment to show first.
+//              each 100 ms frame, from the frame holding sample 0 on; ceilStart is where that
+//              frame starts relative to sample 0 (≤ 0)
+//   statuses   Uint8Array: the clip status of each second (STATUS_CODE), from the second
+//              holding sample 0 on (secStart ≤ 0, secLen samples each); NO_STATUS = not judged
 
-import { ClipDetector, DEFAULT_CLIP_OPTIONS } from './clipdetect.js';
+import { ClipDetector, DEFAULT_CLIP_OPTIONS, CLEAN, LIMITED, CLIPPING } from './clipdetect.js';
 
 export const WAVE = {
   ringSec: 10, // kept by the analyzer: what Freeze shows
-  searchSec: 3, // an event capture looks for plateaus over the last 3 s (the dwell rate's window)
-  eventSec: 0.5, // and keeps this much around the flattest moment
-  focusMs: 25, // the stretch the flattest moment is judged over, and the first view of an event
-  fullScaleWeight: 10, // a full-scale run counts this many times a plateau's length
+  // A clipping capture is taken afterSec after the second that turned the status CLIPPING
+  // (held that long at least), covering beforeSec before that second, the second, and after:
+  // the clipping that turned it and what followed, with history for the ceiling.
+  beforeSec: 2,
+  afterSec: 2,
+  eventSec: 0.5, // a capture keeps this much around the moment with most clipped peaks
+  focusMs: 25, // the stretch that moment is judged over, and the first view of a capture
+  fullScaleWeight: 10, // a full-scale run counts this many times a flat top's length
 };
 
-// The last few seconds of a stereo stream with the clip ceiling of each 100 ms frame.
-// StreamAnalyzer calls push() for every block and endFrame() at the end of each frame.
+export const CLIP = {
+  nearCeilingDb: 1.5,
+  topDb: 0.5, // AAC leaves about this much ripple on a clipped top
+  flatRatio: 3,
+  minTopMs: 0.3,
+  wallCount: 6,
+  wallDb: 0.5,
+  wallSec: 1,
+};
+
+export const STATUS_CODE = { [CLEAN]: 0, [LIMITED]: 1, [CLIPPING]: 2 };
+export const NO_STATUS = 255;
+
+// The last few seconds of a stereo stream with the clip ceiling of each 100 ms frame and
+// the status of each second. StreamAnalyzer calls push() for every block, endFrame() at the
+// end of each frame and endSecond() at the end of each second.
 export class WaveRing {
   constructor(sampleRate, seconds = WAVE.ringSec, frameLen = Math.round(sampleRate * 0.1)) {
     this.sampleRate = sampleRate;
     this.frameLen = frameLen;
+    this.secLen = frameLen * 10;
     this.cap = Math.round(sampleRate * seconds);
     this.L = new Float32Array(this.cap);
     this.R = new Float32Array(this.cap);
     this.ceilCap = Math.ceil(this.cap / frameLen) + 2;
     this.ceil = new Float32Array(this.ceilCap * 2);
+    this.secCap = Math.ceil(this.cap / this.secLen) + 2;
+    this.stat = new Uint8Array(this.secCap);
     this.reset();
   }
 
   reset() {
     this.total = 0; // samples pushed
     this.frames = 0; // frames ended
+    this.seconds = 0; // seconds ended
     this.cur = [-Infinity, -Infinity]; // the ceiling in force during the current frame
   }
 
@@ -63,7 +98,14 @@ export class WaveRing {
     this.cur = [ceilingDb[0], ceilingDb[1]];
   }
 
-  // The last `seconds` (at most what is kept), as copies.
+  // The status judged for the second that just ended.
+  endSecond(status) {
+    this.stat[this.seconds % this.secCap] = STATUS_CODE[status] ?? NO_STATUS;
+    this.seconds++;
+  }
+
+  // The last `seconds` (at most what is kept), as copies. The second still running has no
+  // status yet: it takes the last one (a status is held for 2 s anyway).
   snapshot(seconds) {
     const n = Math.min(this.total, this.cap, Math.round(seconds * this.sampleRate));
     const start = this.total - n;
@@ -78,23 +120,28 @@ export class WaveRing {
     const ceilings = new Float32Array(Math.max(0, f1 - f0 + 1) * 2);
     for (let f = f0; f <= f1; f++) {
       const j = (f - f0) * 2;
-      if (f < this.frames) {
-        const at = (f % this.ceilCap) * 2;
-        ceilings[j] = this.ceil[at];
-        ceilings[j + 1] = this.ceil[at + 1];
-      } else {
-        ceilings[j] = this.cur[0];
-        ceilings[j + 1] = this.cur[1];
-      }
+      const src = f < this.frames ? this.ceil.subarray((f % this.ceilCap) * 2) : this.cur;
+      ceilings[j] = src[0];
+      ceilings[j + 1] = src[1];
     }
-    return { sampleRate: this.sampleRate, start, left, right, frameLen: this.frameLen, ceilStart: f0 * this.frameLen - start, ceilings };
+    const s0 = Math.floor(start / this.secLen);
+    const s1 = n ? Math.floor((this.total - 1) / this.secLen) : s0 - 1;
+    const statuses = new Uint8Array(Math.max(0, s1 - s0 + 1));
+    const last = this.seconds ? this.stat[(this.seconds - 1) % this.secCap] : NO_STATUS;
+    for (let s = s0; s <= s1; s++) statuses[s - s0] = s < this.seconds ? this.stat[s % this.secCap] : last;
+    return {
+      sampleRate: this.sampleRate, start, left, right,
+      frameLen: this.frameLen, ceilStart: f0 * this.frameLen - start, ceilings,
+      secLen: this.secLen, secStart: s0 * this.secLen - start, statuses,
+    };
   }
 }
 
-// The same snapshot taken from a whole decoded file, samples [from, to): the ceilings are
+// The same snapshot taken from a whole decoded file, samples [from, to). The ceilings are
 // rebuilt by running a ClipDetector over the 10 s before, from a segment boundary, which
-// gives exactly the ceilings the file analysis (and playback from the start) had there.
-export function bufferSnapshot(left, right, sampleRate, from, to, clipOptions = {}) {
+// gives exactly the ceilings the file analysis had there; `rowStatuses` are the analysis
+// rows' statuses (row j: second j).
+export function bufferSnapshot(left, right, sampleRate, from, to, rowStatuses = [], clipOptions = {}) {
   from = Math.max(0, Math.min(left.length, Math.round(from)));
   to = Math.max(from, Math.min(left.length, Math.round(to)));
   const det = new ClipDetector(sampleRate, clipOptions);
@@ -116,6 +163,11 @@ export function bufferSnapshot(left, right, sampleRate, from, to, clipOptions = 
     det.processChannel(1, right.subarray(a, b), b - a);
     det.endBlock(b - a);
   }
+  const secLen = frameLen * 10;
+  const s0 = Math.floor(from / secLen);
+  const s1 = to > from ? Math.floor((to - 1) / secLen) : s0 - 1;
+  const statuses = new Uint8Array(Math.max(0, s1 - s0 + 1));
+  for (let k = s0; k <= s1; k++) statuses[k - s0] = STATUS_CODE[rowStatuses[k]] ?? NO_STATUS;
   return {
     sampleRate,
     start: from,
@@ -124,6 +176,9 @@ export function bufferSnapshot(left, right, sampleRate, from, to, clipOptions = 
     frameLen,
     ceilStart: f0 * frameLen - from,
     ceilings,
+    secLen,
+    secStart: s0 * secLen - from,
+    statuses,
   };
 }
 
@@ -133,69 +188,100 @@ const sameSamples = (a, b) => {
   return true;
 };
 
-// The plateaus the dwell detector counts, by its own rule: runs of at least dwellMinMs
-// within ±dwellDb of the ceiling in force, per channel and polarity; and full-scale runs
-// (|x| ≥ fullScale for fullScaleMinRun samples). Data is Float32 or Int16 with a `scale`
-// (sample = value / 32767 * scale). [{ kind: 'dwell' | 'full', ch, pol: 1 | -1, s, e }],
-// e exclusive, sorted by start. Runs cut by either end of the data are kept if long enough.
-export function findRuns(snap, clipOptions = {}) {
-  const o = { ...DEFAULT_CLIP_OPTIONS, ...clipOptions };
-  const sr = snap.sampleRate;
-  const minRun = Math.max(2, Math.round((o.dwellMinMs / 1000) * sr));
-  const k = snap.scale ? snap.scale / 32767 : 1;
-  const chans = sameSamples(snap.left, snap.right) ? [snap.left] : [snap.left, snap.right];
-  const runs = [];
-  const frames = snap.ceilings.length / 2;
-  const bandOf = (c) => (c > o.minCeilingDb ? [Math.pow(10, (c - o.dwellDb) / 20), Math.pow(10, (c + o.dwellDb) / 20)] : [Infinity, Infinity]);
-  chans.forEach((x, ch) => {
-    const n = x.length;
-    // Open run starts per [dwell+, dwell−, full+, full−], -1 when none.
-    const open = [-1, -1, -1, -1];
-    const close = (j, i) => {
-      const s = open[j];
-      if (s < 0) return;
-      open[j] = -1;
-      const full = j >= 2;
-      if (i - s >= (full ? o.fullScaleMinRun : minRun)) runs.push({ kind: full ? 'full' : 'dwell', ch, pol: j % 2 ? -1 : 1, s, e: i });
-    };
-    let frame = -2, lo = [Infinity, Infinity], hi = [Infinity, Infinity];
-    for (let i = 0; i < n; i++) {
-      const f = Math.floor((i - snap.ceilStart) / snap.frameLen);
-      if (f !== frame) {
-        frame = f;
-        const fi = Math.max(0, Math.min(frames - 1, f));
-        const bp = bandOf(frames ? snap.ceilings[fi * 2] : -Infinity), bn = bandOf(frames ? snap.ceilings[fi * 2 + 1] : -Infinity);
-        lo = [bp[0], bn[0]];
-        hi = [bp[1], bn[1]];
-      }
-      const v = x[i] * k;
-      if (v > 0) {
-        if (v >= lo[0] && v <= hi[0]) { if (open[0] < 0) open[0] = i; } else close(0, i);
-        close(1, i);
-        if (v >= o.fullScale) { if (open[2] < 0) open[2] = i; } else close(2, i);
-        close(3, i);
-      } else if (v < 0) {
-        const a = -v;
-        if (a >= lo[1] && a <= hi[1]) { if (open[1] < 0) open[1] = i; } else close(1, i);
-        close(0, i);
-        if (a >= o.fullScale) { if (open[3] < 0) open[3] = i; } else close(3, i);
-        close(2, i);
-      } else {
-        for (let j = 0; j < 4; j++) close(j, i);
-      }
-    }
-    for (let j = 0; j < 4; j++) close(j, n);
-  });
-  return runs.sort((a, b) => a.s - b.s || a.ch - b.ch);
+// The ceiling (dBFS) for sample i and polarity (0 positive, 1 negative).
+export function ceilingAt(c, i, pol) {
+  const frames = c.ceilings.length / 2;
+  if (!frames) return -Infinity;
+  const f = Math.max(0, Math.min(frames - 1, Math.floor((i - c.ceilStart) / c.frameLen)));
+  return c.ceilings[f * 2 + pol];
 }
 
-// The centre (sample index) of the `focusMs` stretch holding the most plateau, full-scale
-// runs weighted up; only runs ending after `from` count. null when there are none.
-export function flattestMoment(runs, n, sampleRate, from = 0) {
+// Whether the flat top at sample i fed a CLIPPING verdict: its own second or one of the next
+// `ahead` (the status judges a 3 s average, so it turns a second or two after the clipping
+// that turned it) reads CLIPPING.
+export function inClipping(c, i, ahead) {
+  if (!c.statuses || !c.statuses.length) return false;
+  const k = Math.floor((i - c.secStart) / c.secLen);
+  for (let j = Math.max(0, k); j <= Math.min(c.statuses.length - 1, k + ahead); j++) if (c.statuses[j] === STATUS_CODE[CLIPPING]) return true;
+  return false;
+}
+
+// The clipped peaks of a snapshot (see the top of this file): [{ kind: 'flat' | 'full', ch,
+// pol: 1 | -1, s, e, peakDb }] with [s, e) the flat top or the full-scale run, sorted by start.
+export function findClipped(snap, clipOptions = {}) {
+  const o = { ...DEFAULT_CLIP_OPTIONS, ...clipOptions };
+  const sr = snap.sampleRate;
+  const chans = sameSamples(snap.left, snap.right) ? [snap.left] : [snap.left, snap.right];
+  const minTop = Math.max(2, Math.round((CLIP.minTopMs / 1000) * sr));
+  const topK = Math.pow(10, -CLIP.topDb / 20);
+  const full = [], flat = [];
+  chans.forEach((x, ch) => {
+    const n = x.length;
+    // Full-scale runs, per polarity.
+    let fs = -1, fsPol = 0;
+    const closeFs = (i) => {
+      if (fs >= 0 && i - fs >= o.fullScaleMinRun) full.push({ kind: 'full', ch, pol: fsPol, s: fs, e: i, peakDb: 0 });
+      fs = -1;
+    };
+    for (let i = 0; i < n; i++) {
+      const v = x[i];
+      const pol = v >= o.fullScale ? 1 : v <= -o.fullScale ? -1 : 0;
+      if (pol !== fsPol || !pol) closeFs(i);
+      if (pol && fs < 0) fs = i;
+      fsPol = pol;
+    }
+    closeFs(n);
+    // Half-cycles (runs of one sign) whose peak comes near the ceiling.
+    let s = 0;
+    for (let i = 1; i <= n; i++) {
+      if (i < n && (x[i] > 0) === (x[s] > 0) && x[i] !== 0) continue;
+      if (x[s] !== 0) {
+        let m = 0, at = s;
+        for (let j = s; j < i; j++) {
+          const a = Math.abs(x[j]);
+          if (a > m) (m = a), (at = j);
+        }
+        const pol = x[s] > 0 ? 1 : -1;
+        const peakDb = 20 * Math.log10(m);
+        const ceil = ceilingAt(snap, at, pol > 0 ? 0 : 1);
+        if (ceil > o.minCeilingDb && peakDb >= ceil - CLIP.nearCeilingDb) {
+          const top = m * topK, half = m / 2;
+          let a = at, b = at;
+          while (a > s && Math.abs(x[a - 1]) >= top) a--;
+          while (b < i - 1 && Math.abs(x[b + 1]) >= top) b++;
+          let r = a, f = b;
+          while (r > s && Math.abs(x[r - 1]) >= half) r--;
+          while (f < i - 1 && Math.abs(x[f + 1]) >= half) f++;
+          const w = b - a + 1, climb = (a - r + (f - b)) / 2;
+          if (w >= minTop && w >= CLIP.flatRatio * Math.max(1, climb)) flat.push({ kind: 'flat', ch, pol, s: a, e: b + 1, peakDb, at });
+        }
+      }
+      s = i;
+    }
+  });
+  // Flat tops count where many sit at one level, when they fed a CLIPPING verdict.
+  const ahead = Math.max(0, o.statusWindowSec - 1);
+  flat.sort((p, q) => p.at - q.at);
+  const reach = CLIP.wallSec * sr;
+  const clipped = [];
+  for (let i = 0; i < flat.length; i++) {
+    const p = flat[i];
+    if (!inClipping(snap, p.at, ahead)) continue;
+    let others = 0;
+    for (let j = i - 1; j >= 0 && p.at - flat[j].at <= reach; j--) if (flat[j].pol === p.pol && Math.abs(flat[j].peakDb - p.peakDb) <= CLIP.wallDb) others++;
+    for (let j = i + 1; j < flat.length && flat[j].at - p.at <= reach; j++) if (flat[j].pol === p.pol && Math.abs(flat[j].peakDb - p.peakDb) <= CLIP.wallDb) others++;
+    if (others >= CLIP.wallCount) clipped.push({ kind: 'flat', ch: p.ch, pol: p.pol, s: p.s, e: p.e, peakDb: p.peakDb });
+  }
+  return [...clipped, ...full].sort((p, q) => p.s - q.s || p.ch - q.ch);
+}
+
+// The centre (sample index) of the `focusMs` stretch holding the most clipped peaks
+// (full-scale runs weighted up); only marks ending after `from` count. null when none.
+export function busiestMoment(marks, n, sampleRate, from = 0) {
   const bin = Math.max(1, Math.round(sampleRate / 1000)); // 1 ms
   const bins = new Float64Array(Math.ceil(n / bin) + 1);
   let any = false;
-  for (const r of runs) {
+  for (const r of marks) {
     if (r.e <= from) continue;
     const w = r.kind === 'full' ? WAVE.fullScaleWeight : 1;
     for (let i = Math.max(r.s, from); i < r.e; i += bin) bins[Math.floor(i / bin)] += w * Math.min(bin, r.e - i);
@@ -215,10 +301,11 @@ export function flattestMoment(runs, n, sampleRate, from = 0) {
   return Math.min(n - 1, Math.max(0, Math.round((at + 1 - width / 2) * bin)));
 }
 
-// A capture of snapshot samples [from, to): Int16 samples (right null when it equals left),
-// the ceilings of the frames it covers, its plateau runs and the sample to show first.
-// `info`: { kind: 'event' | 'freeze' | 'moment', key, label, status, focus (snapshot index) }.
-export function buildCapture(snap, from = 0, to = snap.left.length, info = {}, clipOptions = {}) {
+// A capture of snapshot samples [from, to), given the snapshot's clipped peaks: Int16
+// samples (right null when it equals left), the ceilings of the frames it covers, the marks
+// inside it and the sample to show first. `info`: { kind: 'event' | 'freeze' | 'moment',
+// key, label, status, focus (snapshot index) }.
+export function buildCapture(snap, from, to, marks, info = {}) {
   const n = to - from;
   const left = snap.left.subarray(from, to);
   const right = snap.right ? snap.right.subarray(from, to) : null;
@@ -238,15 +325,6 @@ export function buildCapture(snap, from = 0, to = snap.left.length, info = {}, c
   const fl = snap.frameLen;
   const k0 = Math.max(0, Math.floor((from - snap.ceilStart) / fl));
   const k1 = Math.min(snap.ceilings.length / 2 - 1, Math.floor((to - 1 - snap.ceilStart) / fl));
-  const sub = {
-    sampleRate: snap.sampleRate,
-    left: left,
-    right: mono ? null : right,
-    frameLen: fl,
-    ceilStart: snap.ceilStart + k0 * fl - from,
-    ceilings: Array.from(snap.ceilings.subarray(k0 * 2, (k1 + 1) * 2)),
-  };
-  const runs = findRuns(sub, clipOptions);
   const focus = info.focus != null ? info.focus - from : null;
   return {
     key: info.key || null,
@@ -260,38 +338,38 @@ export function buildCapture(snap, from = 0, to = snap.left.length, info = {}, c
     left: q(left),
     right: mono ? null : q(right),
     frameLen: fl,
-    ceilStart: sub.ceilStart,
-    ceilings: sub.ceilings,
-    runs,
+    ceilStart: snap.ceilStart + k0 * fl - from,
+    ceilings: Array.from(snap.ceilings.subarray(k0 * 2, (k1 + 1) * 2)),
+    marks: marks
+      .filter((r) => r.e > from && r.s < to)
+      .map((r) => ({ ...r, s: Math.max(0, r.s - from), e: Math.min(n, r.e - from) })),
     focus: focus != null && focus >= 0 && focus < n ? focus : null,
   };
 }
 
-// An event capture: the eventSec around the flattest moment of the snapshot's last
-// searchSec (the end of the snapshot is when the status changed).
+// An event capture: the eventSec around the moment with most clipped peaks in the
+// snapshot (whose end is when the status changed), else its last eventSec.
 export function eventCapture(snap, info = {}, clipOptions = {}) {
   const n = snap.left.length;
   const sr = snap.sampleRate;
-  const from = Math.max(0, n - Math.round(WAVE.searchSec * sr));
-  const runs = findRuns(snap, clipOptions);
+  const marks = findClipped(snap, clipOptions);
   const len = Math.min(n, Math.round(WAVE.eventSec * sr));
-  const centre = flattestMoment(runs, n, sr, from) ?? n - Math.round(len / 2);
+  const centre = busiestMoment(marks, n, sr) ?? n - Math.round(len / 2);
   const a = Math.max(0, Math.min(n - len, centre - Math.round(len / 2)));
-  return buildCapture(snap, a, a + len, { kind: 'event', ...info, focus: centre }, clipOptions);
+  return buildCapture(snap, a, a + len, marks, { kind: 'event', ...info, focus: centre });
 }
 
-// A capture of the whole snapshot (Freeze, or a moment of a file), shown whole at first,
-// or `focus` (snapshot index) when given.
-export function wholeCapture(snap, info = {}, clipOptions = {}) {
-  return buildCapture(snap, 0, snap.left.length, { kind: 'freeze', ...info }, clipOptions);
-}
-
-// The ceiling (dBFS) for capture sample i and polarity (0 positive, 1 negative).
-export function ceilingAt(c, i, pol) {
-  const frames = c.ceilings.length / 2;
-  if (!frames) return -Infinity;
-  const f = Math.max(0, Math.min(frames - 1, Math.floor((i - c.ceilStart) / c.frameLen)));
-  return c.ceilings[f * 2 + pol];
+// Snapshot samples [from, to) (default: all of it), with marks judged on the whole snapshot
+// (so a flat top near the edge still has its neighbours), first shown at the busiest
+// moment when `info.focus` is true, else whole.
+export function rangeCapture(snap, info = {}, from = 0, to = snap.left.length, clipOptions = {}) {
+  const marks = findClipped(snap, clipOptions);
+  let focus = null;
+  if (info.focus === true) {
+    const inside = marks.filter((r) => r.e > from && r.s < to);
+    focus = busiestMoment(inside, snap.left.length, snap.sampleRate);
+  }
+  return buildCapture(snap, from, to, marks, { kind: 'freeze', ...info, focus });
 }
 
 // ---------------------------------------------------------------------------
@@ -336,7 +414,9 @@ export function captureJson(c) {
     frameLen: c.frameLen,
     ceilStart: c.ceilStart,
     ceilingsDbfs: c.ceilings.map((v) => (Number.isFinite(v) ? Math.round(v * 100) / 100 : null)),
-    plateaus: c.runs.map((r) => ({ kind: r.kind, ch: r.ch, pol: r.pol, start: r.s, end: r.e })),
+    // Clipped peaks: 'flat' = flat top while CLIPPING, 'full' = full-scale run; start/end are
+    // sample indexes in this capture (end exclusive), ch 0 = left (or both when mono).
+    clipped: c.marks.map((r) => ({ kind: r.kind, ch: r.ch, pol: r.pol, start: r.s, end: r.e, peakDbfs: Math.round(r.peakDb * 100) / 100 })),
     focus: c.focus,
   };
 }
@@ -356,7 +436,7 @@ export function captureFromJson(j) {
     frameLen: j.frameLen,
     ceilStart: j.ceilStart,
     ceilings: j.ceilingsDbfs.map((v) => (v === null ? -Infinity : v)),
-    runs: j.plateaus.map((r) => ({ kind: r.kind, ch: r.ch, pol: r.pol, s: r.start, e: r.end })),
+    marks: j.clipped.map((r) => ({ kind: r.kind, ch: r.ch, pol: r.pol, s: r.start, e: r.end, peakDb: r.peakDbfs })),
     focus: j.focus,
   };
 }

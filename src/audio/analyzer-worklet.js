@@ -36,7 +36,7 @@ class StreamAnalyzerProcessor extends AudioWorkletProcessor {
 
   // A waveform snapshot (waveform.js), its sample arrays handed over rather than copied.
   postSnap(snap, id) {
-    const transfer = snap ? [snap.left.buffer, snap.right.buffer, snap.ceilings.buffer] : [];
+    const transfer = snap ? [snap.left.buffer, snap.right.buffer, snap.ceilings.buffer, snap.statuses.buffer] : [];
     this.port.postMessage({ type: 'wave', id, snap }, transfer);
   }
 

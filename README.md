@@ -186,12 +186,14 @@ The text under the status says how it was detected:
 - **Peak per second**: a flat line of peaks at one level is the visual signature of
   clipping or limiting.
 - **Waveform** (web app): the audio sample by sample, as in an audio editor, with the
-  clip ceiling, the ±1 dB band around it and the plateaus the detector counts marked in
-  orange. Half a second around the flattest moment is kept each time clipping or limiting
-  starts (the last 50; the log entry's **Waveform** button opens it), and **Freeze**
-  keeps the last 10 seconds (the last 5). Ctrl + wheel or double-click zooms, drag pans,
-  the Plateau buttons step between plateaus. For a file, a timeline click shows that
-  moment.
+  clipped peaks in red: tops cut flat (while the status reads CLIPPING, where many peaks
+  are cut at the same level) and samples at 0 dBFS. Rounded peaks, including limited
+  ones, are not marked. Each time clipping starts, half a second around the busiest
+  clipping is kept (the last 50; the log entry's **Waveform** button opens it), and
+  **Freeze** keeps the last 10 seconds (the last 5). **Clear** empties the display so the
+  next capture stands out; nothing is deleted. Ctrl + wheel or double-click zooms, drag
+  pans, the Clipped buttons step between clipped peaks. For a file, a timeline click
+  shows that moment.
 
 ## Mains hum
 
