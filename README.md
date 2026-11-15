@@ -190,7 +190,7 @@ The text under the status says how it was detected:
   are cut at the same level) and samples at 0 dBFS. Rounded peaks, including limited
   ones, are not marked. Each time clipping starts, half a second around the busiest
   clipping is kept (the last 50; the log entry's **Waveform** button opens it), and
-  **Freeze** keeps the last 10 seconds (the last 5). **Clear** empties the display so the
+  **Freeze** keeps the last 5 seconds (the last 5 freezes). **Clear** empties the display so the
   next capture stands out; nothing is deleted. Ctrl + wheel or double-click zooms, drag
   pans, the Clipped buttons step between clipped peaks. For a file, a timeline click
   shows that moment.

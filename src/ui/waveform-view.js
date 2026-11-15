@@ -106,17 +106,19 @@ export class WaveformView {
     if (this.onView) this.onView();
   }
 
-  // The previous / next clipped peak (dir −1 / 1) from the view's centre, centred, zoomed in
-  // to about 25 ms if the view is wider than 100 ms. False when there is none that way.
+  // The previous / next clipped peak (dir −1 / 1) from the view's centre, centred. A view
+  // wider than 100 ms (an overview) goes to the first / last one in it instead, zoomed in to
+  // about 25 ms. False when there is none that way.
   jump(dir) {
     const c = this.cap;
     if (!c || !c.marks.length) return false;
-    const mid = (this.a + this.b) / 2;
+    const wide = this.width > 0.1 * c.sampleRate;
+    const mid = wide ? (dir > 0 ? this.a : this.b) : (this.a + this.b) / 2;
     const eps = 0.5;
     const runs = dir > 0 ? c.marks.filter((r) => (r.s + r.e) / 2 > mid + eps) : c.marks.filter((r) => (r.s + r.e) / 2 < mid - eps).reverse();
     if (!runs.length) return false;
     const r = runs[0];
-    const width = this.width > 0.1 * c.sampleRate ? 0.025 * c.sampleRate : this.width;
+    const width = wide ? 0.025 * c.sampleRate : this.width;
     this.touched = performance.now();
     this.zoomTo((r.s + r.e) / 2, width);
     return true;

@@ -113,7 +113,7 @@ describe('captures', () => {
     });
   });
 
-  test("freeze returns the last 10 s with every frame's ceiling and second's status", () => {
+  test("freeze returns the last 5 s with every frame's ceiling and second's status", () => {
     const f = live.a.freeze();
     assert.equal(f.kind, 'freeze');
     assert.equal(f.left.length, WAVE.ringSec * SR);
@@ -123,7 +123,7 @@ describe('captures', () => {
     assert.deepEqual(Array.from(b.ceilings), Array.from(f.ceilings));
     assert.deepEqual(Array.from(b.statuses), Array.from(f.statuses));
     const c = rangeCapture(f, { key: 'z' });
-    assert.ok(c.marks.length > 50, `${c.marks.length} clipped peaks`);
+    assert.ok(c.marks.length > 20, `${c.marks.length} clipped peaks`);
     assert.equal(c.focus, null);
     // Nothing is marked in the clean part (until the status turns, a second or two in).
     const cleanEnd = 12 * SR - f.start;
@@ -148,6 +148,21 @@ test('clipping from the very start of a session is still captured with its clipp
   assert.ok(s && s.eventT <= 2, `captured (event at ${s && s.eventT} s)`);
   const c = eventCapture(s);
   assert.ok(c.marks.length >= 3, `${c.marks.length} clipped peaks`);
+});
+
+test('a capture with no clipped peak opens at its squarest moment, not the end', () => {
+  const { limited } = syntheticSignals(SR, 6);
+  // Quiet in the last second, so the end is the wrong place to look.
+  const x = limited.map((v, i) => (i >= 5 * SR ? v * 0.1 : v));
+  const r = capture(x, x);
+  const f = r.a.freeze();
+  const c = eventCapture({ ...f, statuses: f.statuses.map(() => STATUS_CODE.CLEAN) });
+  assert.equal(c.marks.length, 0);
+  const centre = c.focus + Math.round(c.t0 * SR) - f.start;
+  assert.ok(centre < 4 * SR, `opened at ${(centre / SR).toFixed(2)} s of 5`);
+  let peak = 0;
+  for (let i = centre - 600; i < centre + 600; i++) peak = Math.max(peak, Math.abs(f.left[i]));
+  assert.ok(20 * Math.log10(peak) > Math.max(f.ceilings[0], f.ceilings[1]) - 1, 'at peaks near the ceiling');
 });
 
 test('limited audio gets no clipped marks', () => {

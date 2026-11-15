@@ -178,7 +178,7 @@ async function main() {
     await page.waitForFunction(() => /Frozen \(\d+ s\)/.test(document.getElementById('wave-title').textContent), null, { timeout: 3000 });
     const frozen = await page.textContent('#wave-title');
     const clippedPeaks = Number((frozen.match(/(\d+) clipped peak/) || [])[1]);
-    check(clippedPeaks >= 5 && /Waveform frozen/.test(await page.textContent('#log-body')), `Freeze shows the last 10 s with clipped peaks marked, and logs it (${frozen})`);
+    check(clippedPeaks >= 5 && /Waveform frozen/.test(await page.textContent('#log-body')), `Freeze shows the last 5 s with clipped peaks marked, and logs it (${frozen})`);
     await page.click('#wave-next');
     check(/Showing 25 ms/.test(await page.textContent('#wave-view')), `Clipped ▶ steps to a clipped peak (${await page.textContent('#wave-view')})`);
     await page.locator('section.wave').screenshot({ path: join(OUT, 'waveform-live.png') });

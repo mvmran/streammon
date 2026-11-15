@@ -28,7 +28,7 @@
 import { ClipDetector, DEFAULT_CLIP_OPTIONS, CLEAN, LIMITED, CLIPPING } from './clipdetect.js';
 
 export const WAVE = {
-  ringSec: 10, // kept by the analyzer: what Freeze shows
+  ringSec: 5, // kept by the analyzer: what Freeze shows (also holds a clipping capture's 5 s)
   // A clipping capture is taken afterSec after the second that turned the status CLIPPING
   // (held that long at least), covering beforeSec before that second, the second, and after:
   // the clipping that turned it and what followed, with history for the ceiling.
@@ -301,6 +301,30 @@ export function busiestMoment(marks, n, sampleRate, from = 0) {
   return Math.min(n - 1, Math.max(0, Math.round((at + 1 - width / 2) * bin)));
 }
 
+// The centre (sample index) of the `focusMs` stretch where the most samples sit within
+// dwellDb of their polarity's ceiling (the squarest stretch, what the dwell and pile-up
+// detectors respond to); for a capture with no clipped peak marked. null if none get there.
+export function squarestMoment(snap, from = 0, to = snap.left.length, clipOptions = {}) {
+  const o = { ...DEFAULT_CLIP_OPTIONS, ...clipOptions };
+  const chans = sameSamples(snap.left, snap.right) ? [snap.left] : [snap.left, snap.right];
+  const width = Math.max(1, Math.round((WAVE.focusMs / 1000) * snap.sampleRate));
+  const near = new Uint8Array(to - from);
+  for (let i = from; i < to; i++) {
+    const lo = [Math.pow(10, (ceilingAt(snap, i, 0) - o.dwellDb) / 20), Math.pow(10, (ceilingAt(snap, i, 1) - o.dwellDb) / 20)];
+    for (const x of chans) {
+      const v = x[i];
+      if ((v > 0 && v >= lo[0]) || (v < 0 && -v >= lo[1])) near[i - from]++;
+    }
+  }
+  let sum = 0, best = 0, at = -1;
+  for (let i = 0; i < near.length; i++) {
+    sum += near[i];
+    if (i >= width) sum -= near[i - width];
+    if (sum > best) (best = sum), (at = i);
+  }
+  return at < 0 ? null : from + Math.max(0, at + 1 - Math.round(width / 2));
+}
+
 // A capture of snapshot samples [from, to), given the snapshot's clipped peaks: Int16
 // samples (right null when it equals left), the ceilings of the frames it covers, the marks
 // inside it and the sample to show first. `info`: { kind: 'event' | 'freeze' | 'moment',
@@ -347,27 +371,27 @@ export function buildCapture(snap, from, to, marks, info = {}) {
   };
 }
 
-// An event capture: the eventSec around the moment with most clipped peaks in the
-// snapshot (whose end is when the status changed), else its last eventSec.
+// An event capture: the eventSec around the moment with most clipped peaks in the snapshot,
+// else its squarest moment (see squarestMoment), else its last eventSec.
 export function eventCapture(snap, info = {}, clipOptions = {}) {
   const n = snap.left.length;
   const sr = snap.sampleRate;
   const marks = findClipped(snap, clipOptions);
   const len = Math.min(n, Math.round(WAVE.eventSec * sr));
-  const centre = busiestMoment(marks, n, sr) ?? n - Math.round(len / 2);
+  const centre = busiestMoment(marks, n, sr) ?? squarestMoment(snap, 0, n, clipOptions) ?? n - Math.round(len / 2);
   const a = Math.max(0, Math.min(n - len, centre - Math.round(len / 2)));
   return buildCapture(snap, a, a + len, marks, { kind: 'event', ...info, focus: centre });
 }
 
 // Snapshot samples [from, to) (default: all of it), with marks judged on the whole snapshot
-// (so a flat top near the edge still has its neighbours), first shown at the busiest
-// moment when `info.focus` is true, else whole.
+// (so a flat top near the edge still has its neighbours), first shown when `info.focus` is
+// true at the busiest moment of clipped peaks, else the squarest; otherwise whole.
 export function rangeCapture(snap, info = {}, from = 0, to = snap.left.length, clipOptions = {}) {
   const marks = findClipped(snap, clipOptions);
   let focus = null;
   if (info.focus === true) {
     const inside = marks.filter((r) => r.e > from && r.s < to);
-    focus = busiestMoment(inside, snap.left.length, snap.sampleRate);
+    focus = busiestMoment(inside, snap.left.length, snap.sampleRate) ?? squarestMoment(snap, from, to, clipOptions);
   }
   return buildCapture(snap, from, to, marks, { kind: 'freeze', ...info, focus });
 }

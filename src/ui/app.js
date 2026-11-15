@@ -705,7 +705,7 @@ function togglePlay() {
 // ---------------------------------------------------------------------------
 // Waveform captures
 
-const WAVE_IDLE_TEXT = 'Waiting for clipping: each time it starts, the moment is captured here. Freeze keeps the last 10 seconds.';
+const WAVE_IDLE_TEXT = 'Waiting for clipping: each time it starts, the moment is captured here. Freeze keeps the last 5 seconds.';
 
 function clearWaves() {
   state.waves.clear();
